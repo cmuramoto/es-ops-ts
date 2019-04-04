@@ -346,6 +346,7 @@ const humongous_stream = async () => {
 
   let next = stream.next();
 
+  // compiler won't let us use for(v of stream)
   while (next && !next.done) {
     let v = await next.value;
     if (count == 0) {
@@ -380,14 +381,14 @@ const humongous_stream = async () => {
     console.log(count);
 
     if (v != count) {
-      console.log(`FUCK. Scroll Count != Query Count: (${count}!=${v})`);
+      console.log(`Oops. Scroll Count != Query Count: (${count}!=${v})`);
     } else {
       console.log(`Scroll Count == Query Count: (${count}==${v})`);
     }
 
     if (expectedLoops != loops) {
       console.log(
-        `FUCK. Actual Roundtrips != Expected Roundtrips: (${loops}!=${expectedLoops})`
+        `Oops. Actual Roundtrips != Expected Roundtrips: (${loops}!=${expectedLoops})`
       );
     } else {
       console.log(
