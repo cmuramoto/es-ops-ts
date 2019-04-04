@@ -308,8 +308,10 @@ Large datasets in Elastic Search can be consumed using the Scroll API approach.
 
 In typescript scrolls can easily be translated into generators, which will query the database **N+1**-times, where
 
-```
-N= (int)(number of docs matched by a query)/(page size) + ((number of docs matched by a query)%(size of ppage size)?1:0)
+```typescript
+let ps = ...;//pagesize
+let total = ...;//number of docs matched by a query
+N= (int)(total)/(ps) + (total%ps ? 1 : 0)
 ```
 
 The following scroll harness test sucessfully consumed an Index of 212.715.000 documents:
