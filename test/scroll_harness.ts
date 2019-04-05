@@ -25,10 +25,9 @@ const humongous_stream = async () => {
 
   let stream = ops.stream("pf", q.limit(ps), PFMapper);
 
-  let next = stream.next();
+  for (const next of stream) {
+    let v = await next;
 
-  while (next && !next.done) {
-    let v = await next.value;
     if (count == 0) {
       total = v.total();
       //1 extra since it takes a final round-trip to get an empty result
@@ -51,9 +50,6 @@ const humongous_stream = async () => {
         ).toFixed(2)}%) Fetched`
       );
     }
-
-    //console.log(v);
-    next = stream.next();
   }
 
   q = RootQuery.matchAll();

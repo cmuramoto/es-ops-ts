@@ -3,7 +3,7 @@ const unirest = require("unirest");
 type HttpResponse = {
   status: number;
   body: {};
-  rawBody: any;
+  raw_body: any;
   error: {} | PromiseLike<{}> | undefined;
 };
 
@@ -33,6 +33,13 @@ import {
 import { Converter } from "./bind";
 import { RootQuery } from "../search/exports";
 import { Scroll } from "../search/scroll";
+import {
+  IBulkInsertResult,
+  BulkOpResultFactory,
+  BulkOperationResult,
+  BulkDeleteResult
+} from "../ops/bulk_op_result";
+import { IGrowableBuffer, GrowableBuffer } from "../ops/buffer_sink";
 
 //TODO
 const DEFAULT_DOC_TYPE = "doc";
@@ -149,7 +156,7 @@ const doHttpWithContingency = <T>(
             reject({
               host: curr,
               err: res.error,
-              body: tryExtractError(res.rawBody)
+              body: tryExtractError(res.raw_body)
             });
           }
         } else {
@@ -295,7 +302,25 @@ export interface IElasticSearchOps {
     ...fields: string[]
   ): IterableIterator<Promise<ISearchResult<T>>>;
 
+  asyncStream<T>(
+    index: string,
+    q: RootQuery,
+    mapper: (o: any) => T,
+    ...fields: string[]
+  ): AsyncIterableIterator<ISearchResult<T>>;
+
   count(index: string, q: RootQuery): Promise<number>;
+
+  bulkInsert<T>(
+    index: string,
+    docs: IterableIterator<T> | Array<T>,
+    outputItems?: boolean,
+    batch?: number,
+    idFactory?: (o: T) => string,
+    sink?: (src: T, dst: IGrowableBuffer) => void
+  ): IterableIterator<Promise<IBulkInsertResult>>;
+
+  deleteMatching(index: string, q: RootQuery): Promise<BulkDeleteResult>;
 }
 
 export interface IEndpointSelector {
@@ -347,7 +372,105 @@ const singleProjection = (id: string, ...fields: string[]) => {
     return sb;
   }
 };
+
+const insertBatcher = function*(
+  hostFactory: () => string[],
+  ctx: string,
+  docs: IterableIterator<any> | Array<any>,
+  outputItems: boolean = false,
+  _batch?: number,
+  idFactory?: (o: any) => string,
+  _sink?: (src: any, dst: IGrowableBuffer) => void
+) {
+  const pre = Buffer.from('{"index": {}}\n');
+  const post = Buffer.from("\n");
+  const sink = _sink
+    ? _sink
+    : (src: any, dst: IGrowableBuffer) => {
+        dst.write(JSON.stringify(src));
+      };
+  const batch = Math.min(_batch || 1000, 10000);
+
+  const buffer = new GrowableBuffer(batch * 1024);
+
+  let curr = 0;
+
+  for (const doc of docs) {
+    let header = idFactory
+      ? Buffer.from(`{"index":{"_id": "${idFactory(doc)}"}}\n`)
+      : pre;
+    buffer.writeBuffer(header);
+    sink(doc, buffer);
+    buffer.writeBuffer(post);
+
+    if (++curr >= batch) {
+      let payload = buffer.slice();
+      yield doPostWithContingency(
+        hostFactory(),
+        ctx,
+        (b: any) => BulkOpResultFactory(b, outputItems),
+        payload
+      );
+
+      curr = 0;
+    }
+  }
+
+  if (curr) {
+    let payload = buffer.slice();
+    yield doPostWithContingency(
+      hostFactory(),
+      ctx,
+      (b: any) => BulkOpResultFactory(b, outputItems),
+      payload
+    );
+  }
+};
+
 class ElasticSearchOps implements IElasticSearchOps {
+  deleteMatching(index: string, q: RootQuery): Promise<BulkDeleteResult> {
+    let path = concat2(index, "_delete_by_query?conflicts=proceed");
+
+    return doPostWithContingency(
+      this.availableEndpoints(),
+      path,
+      BulkDeleteResult.wrap,
+      q.json()
+    );
+  }
+
+  bulkInsert<T>(
+    index: string,
+    docs: IterableIterator<T> | Array<T>,
+    outputItems: boolean = false,
+    batch?: number,
+    idFactory?: (o: T) => string,
+    sink?: (src: T, dst: IGrowableBuffer) => void
+  ): IterableIterator<Promise<IBulkInsertResult>> {
+    let ctx = concat3(index, DEFAULT_DOC_TYPE, "_bulk");
+    let self = this;
+
+    let batcher = insertBatcher(
+      () => self.availableEndpoints(),
+      ctx,
+      docs,
+      outputItems,
+      batch,
+      idFactory,
+      sink
+    );
+
+    return batcher;
+  }
+  asyncStream<T>(
+    index: string,
+    q: RootQuery,
+    mapper: (o: any) => T,
+    ...fields: string[]
+  ): AsyncIterableIterator<ISearchResult<T>> {
+    return this.createScroll(index, q, mapper, ...fields).asyncStream();
+  }
+
   count(index: string, q: RootQuery): Promise<number> {
     let path = concat2(index, "_count?filter_path=count");
 
@@ -358,12 +481,22 @@ class ElasticSearchOps implements IElasticSearchOps {
       q.json()
     );
   }
+
   stream<T>(
     index: string,
     q: RootQuery,
     mapper: (o: any) => T,
     ...fields: string[]
   ): IterableIterator<Promise<ISearchResult<T>>> {
+    return this.createScroll(index, q, mapper, ...fields).stream();
+  }
+
+  private createScroll<T>(
+    index: string,
+    q: RootQuery,
+    mapper: (o: any) => T,
+    ...fields: string[]
+  ): Scroll<T> {
     let path: string;
     let ttl = q.scrollTtlOrDefault();
 
@@ -401,8 +534,9 @@ class ElasticSearchOps implements IElasticSearchOps {
         rmapper
       );
 
-    return new Scroll<T>(head, factory).stream();
+    return new Scroll<T>(head, factory);
   }
+
   query<T>(
     index: string,
     q: RootQuery,

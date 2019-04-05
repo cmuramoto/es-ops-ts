@@ -1,10 +1,12 @@
-import { Result,RefreshResult, Status, ShardStats } from "./result";
+import { Result, RefreshResult, Status, ShardStats } from "./result";
 import { Hits, Hit } from "./hits";
+import { MappedSearchResult, ISearchResult } from "./search_result";
 import {
-  MappedSearchResult,
-  ISearchResult,
-  
-} from "./search_result";
+  Retries,
+  BulkOperationResult,
+  BulkDeleteResult,
+  BulkOpResultFactory
+} from "./bulk_op_result";
 
 export {
   Result,
@@ -14,5 +16,9 @@ export {
   Hits,
   Hit, //
   ISearchResult,
-  MappedSearchResult
+  MappedSearchResult, //
+  Retries,
+  BulkOperationResult,
+  BulkDeleteResult,
+  BulkOpResultFactory
 };
