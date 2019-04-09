@@ -770,9 +770,9 @@ do_bulk_update();
 
 ```
 
-### Update By Query
+### Update By Query & Deleting Fields
 
-Update by Query is the equivalent of SQL's 'update table set table.x=... **where** table.y=...'. As (everyone should do!) in SQL, we start with the **where** which is the RootQuery and append to it a **script** value.
+Update by Query is the equivalent of SQL's 'update table set table.x=... **where** table.y=...'. As (everyone should do!) in SQL, we start with the **where** which is the RootQuery and append to it a **script** value, containining the update semantics:
 
 ```typescript
 let query = ...;//RootQuery
@@ -784,7 +784,7 @@ ops.updateByQuery(index,query);
 
 Update by Query is a powerfull alternative to Bulk Update since it does not require the the whole dataset to be transfered to the backend, we let Elastic do the heavy lifting. The downside is that one must know how to write statements in some scripting language understood by ES.
 
-Perhaps one of the most useful use cases of Update by Query is deleting fields from a matching set of documents, which can be written as:
+Perhaps one of the most important use cases of Update by Query is deleting fields from a matching set of documents, which can be written as:
 
 ```typescript
 let query = ...;//RootQuery
@@ -795,7 +795,16 @@ query.updating(`ctx._source.remove('${obsolete});`);
 ops.updateByQuery(index,query);
 ```
 
-which is the same as calling the **deleteFields** function.
+The logic for removing one or more fields from a matching set of documents is encapsulated in the **deleteFields** function:
+
+```typescript
+let query = ...;//RootQuery
+let obsolete = 'not_useful_anymore';
+
+ops.deleteFieldsQuery(index,query,'not_useful_anymore');
+```
+
+
 
 ### Paging and Search After
 
