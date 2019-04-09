@@ -801,7 +801,7 @@ The logic for removing one or more fields from a matching set of documents is en
 let query = ...;//RootQuery
 let obsolete = 'not_useful_anymore';
 
-ops.deleteFieldsQuery(index,query,'not_useful_anymore');
+ops.deleteFields(index,query,'not_useful_anymore');
 ```
 
 
