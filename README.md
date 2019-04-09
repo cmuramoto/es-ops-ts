@@ -790,7 +790,7 @@ Perhaps one of the most important use cases of Update by Query is deleting field
 let query = ...;//RootQuery
 let obsolete = 'not_useful_anymore';
 
-query.updating(`ctx._source.remove('${obsolete});`);
+query.updating(`ctx._source.remove('${obsolete}');`);
 
 ops.updateByQuery(index,query);
 ```
