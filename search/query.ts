@@ -35,8 +35,7 @@ export enum Kind {
 }
 
 export /*interface*/ abstract class IQuery {
- 
-  abstract kind():Kind;
+  abstract kind(): Kind;
 
   kindName(): string {
     return this.kind();
@@ -44,6 +43,12 @@ export /*interface*/ abstract class IQuery {
 
   rewrite(): any {
     return this;
+  }
+
+  toRecord(): Record<Kind, any> {
+    let o = {} as Record<Kind, any>;
+    o[this.kind()] = this.rewrite();
+    return o;
   }
 
   asRoot(): RootQuery {

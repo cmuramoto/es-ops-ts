@@ -24,11 +24,22 @@ export interface ISearchResult<T> {
 
   getHits(): Array<Hit<T>>;
 
+  tuples(eager?: boolean): IterableIterator<[string, T]>;
+
   scrollId(): string;
 }
 
 const __Hits = new Hits(0, []);
 const __Hit = new Hit("", {});
+
+const tupleGen = function*(hits: Array<Hit<any>>) {
+  if (hits) {
+    for (var ix = 0; ix < hits.length; ix++) {
+      let h = hits[ix];
+      yield h.tuple();
+    }
+  }
+};
 
 const protoAssign = <T>(dst: any, src: T) => {
   if (dst) {
@@ -38,6 +49,16 @@ const protoAssign = <T>(dst: any, src: T) => {
 };
 
 export class MappedSearchResult<T> implements ISearchResult<T> {
+  lazyTuples(): IterableIterator<[string, T]> {
+    throw new Error("Method not implemented.");
+  }
+
+  tuples(eager?: boolean): IterableIterator<[string, T]> {
+    return (eager
+      ? this.getHits().map(h => h.tuple())
+      : tupleGen(this.getHits())) as IterableIterator<[string, T]>;
+  }
+
   took!: number;
   _scroll_id!: string | null;
   timed_out!: boolean;
@@ -78,8 +99,9 @@ export class MappedSearchResult<T> implements ISearchResult<T> {
 
     return v ? v._source : null;
   }
+  
   idList(): string[] {
-    return this.getHits().map(h => h.id);
+    return this.getHits().map(h => h._id);
   }
 
   values(): T[] {

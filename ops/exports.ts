@@ -3,10 +3,14 @@ import { Hits, Hit } from "./hits";
 import { MappedSearchResult, ISearchResult } from "./search_result";
 import {
   Retries,
+  IBulkOpResult,
   BulkOperationResult,
   BulkDeleteResult,
-  BulkOpResultFactory
-} from "./bulk_op_result";
+  BulkOpResultFactory,
+  UpdateStatement,
+  UpdateByQueryOptions,
+  UpdateByQueryResult
+} from "./bulk_ops";
 
 export {
   Result,
@@ -18,7 +22,11 @@ export {
   ISearchResult,
   MappedSearchResult, //
   Retries,
+  IBulkOpResult,
   BulkOperationResult,
   BulkDeleteResult,
-  BulkOpResultFactory
+  BulkOpResultFactory,
+  UpdateStatement,
+  UpdateByQueryOptions,
+  UpdateByQueryResult
 };

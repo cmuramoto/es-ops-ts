@@ -15,6 +15,8 @@ import {
   WildCard
 } from "./leaf_query";
 
+import { ICompoundQuery, Bool } from "./compound_query";
+
 export {
   IQuery,
   //Kind, //
@@ -30,5 +32,7 @@ export {
   Sort,
   Mode,
   Order, //
+  ICompoundQuery,
+  Bool, //
   RootQuery
 };

@@ -1,10 +1,22 @@
 export class Hit<T> {
-  id: string;
+  _id: string;
   _source: T;
 
   constructor(id: string, source: T) {
-    this.id = id;
+    this._id = id;
     this._source = source;
+  }
+
+  id(): string {
+    return this._id;
+  }
+
+  source(): T {
+    return this._source;
+  }
+
+  tuple(): [string, T] {
+    return [this._id, this._source];
   }
 }
 
@@ -17,4 +29,3 @@ export class Hits<T> {
     this.hits = hits;
   }
 }
-

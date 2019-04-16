@@ -118,4 +118,4 @@ const doBasicCrud = async () => {
   }
 };
 
-doBasicCrud();
+doBasicCrud().finally(() => ops.close());

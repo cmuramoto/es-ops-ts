@@ -8,7 +8,7 @@
             "type": "node",
             "request": "launch",
             "name": "Launch Program",
-            "program": "${workspaceFolder}/test/bulk_insert.ts",
+            "program": "${workspaceFolder}/test/basic.ts",
             "outFiles": [
                 "${workspaceFolder}/**/*.js"
             ]

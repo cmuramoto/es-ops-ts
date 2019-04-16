@@ -1,8 +1,6 @@
 import { OpsFactory } from "../api/ies-ops";
-import { Ids, Exists } from "../search/exports";
-import { Status } from "../ops/result";
-import { DEFAULT_ECDH_CURVE } from "tls";
-import { IBulkInsertResult } from "../ops/bulk_op_result";
+import { Exists } from "../search/exports";
+import { IBulkOpResult } from "../ops/exports";
 
 const ops = OpsFactory("http://localhost:9200");
 const index = "docs";
@@ -63,11 +61,19 @@ const run_bulk_insert = async (
 
   let stream = ops.bulkInsert(index, src, false, 100, doc => "" + doc.sequence);
 
-  let root: IBulkInsertResult = null;
+  let root: IBulkOpResult = null;
 
   for (const pres of stream) {
     let res = await pres;
 
+    /*
+     * Reduce BulkInsert Result. This is not required and not advised if outputItems is set to true,
+     * because it will concatenate every partial list of Item instances into a single one, which may
+     * cause an OOM error.
+     *
+     * This is useful to accumulate the total time taken for all round trips as well as finding out wether
+     * an error has ocurred during the operation or not.
+     */
     if (root) {
       root = root.merge(res);
     } else {
@@ -82,14 +88,14 @@ const do_bulk_insert = async () => {
   let res = await run_bulk_insert(makeDocsArray(10000));
   console.log(`[Array]Merged Bulk Insert Status: ${JSON.stringify(res)}`);
   await refresh();
-  let count = await ops.count(index,Exists.exists(TAG).asRoot());
+  let count = await ops.count(index, Exists.exists(TAG).asRoot());
   console.log(`[Array]Post Insert Count:${count}`);
 
   res = await run_bulk_insert(makeDocsStream(10000));
   console.log(`[Stream]Merged Bulk Insert Status: ${JSON.stringify(res)}`);
   await refresh();
-  count = await ops.count(index,Exists.exists(TAG).asRoot());
+  count = await ops.count(index, Exists.exists(TAG).asRoot());
   console.log(`[Stream]Post Insert Count:${count}`);
 };
 
-do_bulk_insert();
+do_bulk_insert().finally(() => ops.close());

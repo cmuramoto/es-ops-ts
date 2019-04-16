@@ -2,7 +2,7 @@ import { OpsFactory } from "../api/ies-ops";
 import { Exists, Sort, Bool, Range, RootQuery } from "../search/exports";
 import { IBulkOpResult } from "../ops/exports";
 
-const ops = OpsFactory("http://localhost:9200");
+const ops = OpsFactory("http://localhost:9500", "http://localhost:9200");
 const index = "docs";
 
 const refresh = async () => {
@@ -209,7 +209,7 @@ const do_update_by_query = async (upTo: number) => {
   let with_mutable = await ops.count(
     index,
     Bool.bool()
-      .withFilter(Exists.exists(TAG),Exists.exists("mutable"))
+      .withFilter(Exists.exists(TAG), Exists.exists("mutable"))
       .asRoot()
   );
 
@@ -224,20 +224,24 @@ const do_update_by_query = async (upTo: number) => {
 };
 
 const do_bulk_update = async () => {
-  let res = await run_bulk_insert(makeDocsArray(10000));
-  console.log(`Merged Bulk Insert Status: ${JSON.stringify(res)}`);
-  await refresh();
-  let count = await ops.count(index, Exists.exists(TAG).asRoot());
-  console.log(`Post Insert Count:${count}`);
+  try {
+    let res = await run_bulk_insert(makeDocsArray(10000));
+    console.log(`Merged Bulk Insert Status: ${JSON.stringify(res)}`);
+    await refresh();
+    let count = await ops.count(index, Exists.exists(TAG).asRoot());
+    console.log(`Post Insert Count:${count}`);
 
-  res = await run_bulk_update(2000);
-  console.log(`Merged Bulk Update Status: ${JSON.stringify(res)}`);
-  await refresh();
-  let check = await check_bulk_update(2000);
-  console.log(check);
+    res = await run_bulk_update(2000);
+    console.log(`Merged Bulk Update Status: ${JSON.stringify(res)}`);
+    await refresh();
+    let check = await check_bulk_update(2000);
+    console.log(check);
 
-  check = await do_update_by_query(2000);
-  console.log(check);
+    check = await do_update_by_query(2000);
+    console.log(check);
+  } finally {
+    ops.close();
+  }
 };
 
-do_bulk_update();
+do_bulk_update().finally(() => ops.close());

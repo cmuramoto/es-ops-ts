@@ -9,7 +9,7 @@ import {
   IndexedType
 } from "../config/exports";
 
-const ops = OpsFactory("http://localhost:9300","http://localhost:9200");
+const ops = OpsFactory("http://localhost:9300", "http://localhost:9200");
 
 const DATE_PATTERNS = ["yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS"];
 
@@ -121,4 +121,4 @@ const run = async () => {
   settings();
 };
 
-run();
+run().finally(() => ops.close());

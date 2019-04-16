@@ -3,15 +3,14 @@ import { OpsFactory } from "../api/ies-ops";
 
 const nodeVersion = process.version;
 
-if(parseInt(nodeVersion.substr(1).split('.')[0])<10){
-  console.error(`Exiting. Async Generators are supported in node 10+. Please upgrade ${nodeVersion}.`)
+if (parseInt(nodeVersion.substr(1).split(".")[0]) < 10) {
+  console.error(
+    `Exiting. Async Generators are supported in node 10+. Please upgrade ${nodeVersion}.`
+  );
   process.exit(1);
 }
 
-
 const ops = OpsFactory("http://localhost:9201");
-
-
 
 class PF {
   cpf: number;
@@ -82,4 +81,4 @@ const humongous_stream = async () => {
   });
 };
 
-humongous_stream();
+humongous_stream().finally(() => ops.close());

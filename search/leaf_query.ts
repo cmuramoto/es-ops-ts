@@ -126,10 +126,10 @@ export class Range extends ILeafQuery {
   }
 
   field: string;
-  _lt?: string | null;
-  _lte?: string | null;
-  _gt?: string | null;
-  _gte?: string | null;
+  _lt: any;
+  _lte: any;
+  _gt: any;
+  _gte: any;
   boost?: number;
   format?: string;
   time_zone?: string;
@@ -139,15 +139,15 @@ export class Range extends ILeafQuery {
     return this.lte(val).gte(val);
   }
 
-  doFmt(date?: Date | string): string {
+  doFmt(val?: Date | string): string {
     let fmt = this.fmt;
-    return date == null
+    return val == null
       ? "now"
       : fmt == null
-      ? typeof date == "string"
-        ? date
-        : date.toJSON()
-      : fmt(date);
+      ? typeof val == "string"
+        ? val
+        : val.toJSON()
+      : fmt(val);
   }
 
   use(fmt: (d: any) => string): Range {
@@ -156,26 +156,44 @@ export class Range extends ILeafQuery {
     return this;
   }
 
-  gt(val?: Date | string): Range {
-    this._gt = this.doFmt(val);
+  gt(val?: Date | string | number): Range {
+    if (typeof val == "number") {
+      this._gt = val;
+    } else {
+      this._gt = this.doFmt(val);
+    }
+
     this._gte = null;
+
     return this;
   }
 
-  gte(val?: Date | string): Range {
-    this._gte = this.doFmt(val);
+  gte(val?: Date | string | number): Range {
+    if (typeof val == "number") {
+      this._gte = val;
+    } else {
+      this._gte = this.doFmt(val);
+    }
     this._gt = null;
     return this;
   }
 
-  lt(val?: Date | string): Range {
-    this._lt = this.doFmt(val);
+  lt(val?: Date | string | number): Range {
+    if (typeof val == "number") {
+      this._lt = val;
+    } else {
+      this._lt = this.doFmt(val);
+    }
     this._lte = null;
     return this;
   }
 
-  lte(val?: Date | string): Range {
-    this._lte = this.doFmt(val);
+  lte(val?: Date | string | number): Range {
+    if (typeof val == "number") {
+      this._lte = val;
+    } else {
+      this._lte = this.doFmt(val);
+    }
     this._lt = null;
     return this;
   }
@@ -235,27 +253,28 @@ export class Range extends ILeafQuery {
     let v;
 
     if ((v = t._gt)) {
-      delete t._gt;
       t.gt = v;
     }
 
     if ((v = t._gte)) {
-      delete t._gte;
       t.gte = v;
     }
 
     if ((v = t._lt)) {
-      delete t._lt;
       t.lt = v;
     }
 
     if ((v = t._lte)) {
-      delete t._lte;
       t.lte = v;
     }
-
+    
     delete t.field;
     delete t.fmt;
+    delete t._gt;
+    delete t._lt;
+    delete t._gte;
+    delete t._lte;
+
     return o;
   }
 

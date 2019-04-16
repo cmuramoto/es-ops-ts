@@ -1,17 +1,14 @@
 import { OpsFactory } from "../api/ies-ops";
 
-import { RootQuery } from "../search/exports";
-import { IndexedType } from "../config/exports";
-
 const ops = OpsFactory("http://localhost:9200");
 
-const infos = () => {
+const infos = async () => {
   ops.info().then(info => {
     console.log(info.json());
   });
 };
 
-const mappings = () => {
+const mappings = async () => {
   ops.mappings("docs").then(v => {
     console.log(v.json());
     let doc = v.type("doc");
@@ -21,12 +18,12 @@ const mappings = () => {
   });
 };
 
-const settings = () => {
+const settings = async () => {
   ops.settings("docs").then(v => {
     console.log(v);
   });
 };
 
-infos();
-mappings();
-settings();
+infos()
+  .then(_ => mappings().then(_ => settings()))
+  .finally(() => ops.close());

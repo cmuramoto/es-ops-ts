@@ -74,4 +74,4 @@ const humongous_stream = async () => {
   });
 };
 
-humongous_stream();
+humongous_stream().finally(() => ops.close());

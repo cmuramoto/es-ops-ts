@@ -8,15 +8,6 @@ type HttpResponse = {
 };
 
 import {
-  DateFormat,
-  GeneralType,
-  Type,
-  IndexOptions,
-  StoreType,
-  DynamicTemplate,
-  Property,
-  IndexedType,
-  Source,
   Mappings,
   Settings,
   IndexDefinition,
@@ -27,19 +18,24 @@ import {
   Result,
   MappedSearchResult,
   RefreshResult,
-  ISearchResult
+  ISearchResult,
+  IBulkOpResult,
+  UpdateStatement
 } from "../ops/exports";
 
 import { Converter } from "./bind";
 import { RootQuery } from "../search/exports";
 import { Scroll } from "../search/scroll";
 import {
-  IBulkInsertResult,
   BulkOpResultFactory,
-  BulkOperationResult,
-  BulkDeleteResult
-} from "../ops/bulk_op_result";
+  BulkDeleteResult,
+  UpdateByQueryOptions,
+  UpdateByQueryResult
+} from "../ops/bulk_ops";
+
 import { IGrowableBuffer, GrowableBuffer } from "../ops/buffer_sink";
+
+import { IEndpointSelector, EndpointSelectorFactory, HttpHost } from "../util/http_client";
 
 //TODO
 const DEFAULT_DOC_TYPE = "doc";
@@ -126,26 +122,26 @@ const tryExtractError = (err?: any) => {
     } catch (e) {
       return err;
     }
-    return null;
   }
 };
 
-const doHttpWithContingency = <T>(
+const performCall = <T>(
   method: HttpMethod,
-  hosts: string[],
+  sel: IEndpointSelector,
+  hosts: IterableIterator<HttpHost>,
   ctx: string,
   buffer: string | Buffer | undefined,
-  extract: (b: any) => T,
-  index: number = 0
+  extract: (b: any) => T
 ) => {
-  let curr = hosts[index];
+  let res = hosts.next();
+  let curr = res.done ? null : res.value;
   let rv: Promise<T>;
 
   if (!curr) {
     rv = Promise.reject("Exausted Hosts") as Promise<T>;
   } else {
     rv = new Promise<T>((resolve, reject) => {
-      let path = concat2(curr, ctx);
+      let path = concat2(curr.url(), ctx);
       prepareCall(method, path, buffer).end((res: HttpResponse) => {
         //TODO better status handling
         if (res.error || res.status >= 400) {
@@ -153,6 +149,7 @@ const doHttpWithContingency = <T>(
             resolve();
           } else {
             //Network error
+            sel.onFailure(curr);
             reject({
               host: curr,
               err: res.error,
@@ -166,65 +163,67 @@ const doHttpWithContingency = <T>(
     }) //
       .catch(e => {
         console.log(JSON.stringify(e));
-        return doHttpWithContingency<T>(
-          method,
-          hosts,
-          ctx,
-          buffer,
-          extract,
-          index + 1
-        );
+        return performCall<T>(method, sel, hosts, ctx, buffer, extract);
       }) as Promise<T>;
   }
 
   return rv;
 };
 
+const doHttpWithContingency = <T>(
+  method: HttpMethod,
+  sel: IEndpointSelector,
+  ctx: string,
+  buffer: string | Buffer | undefined,
+  extract: (b: any) => T
+) => {
+  return performCall(method, sel, sel.available(), ctx, buffer, extract);
+};
+
 const doHttpWithContingencyAndFactory = <T>(
   method: HttpMethod,
-  hosts: string[],
+  sel: IEndpointSelector,
   ctx: string,
   factory: () => Buffer | string,
-  extract: (b: any) => T,
-  index: number = 0
+  extract: (b: any) => T
 ) => {
-  return doHttpWithContingency(method, hosts, ctx, factory(), extract, index);
+  return doHttpWithContingency(method, sel, ctx, factory(), extract, );
 };
 
 const doGetWithContingency = <T>(
-  hosts: string[],
+  sel: IEndpointSelector,
   ctx: string,
   extract: (b: any) => T,
   buffer?: string | Buffer
-) => doHttpWithContingency<T>(HttpMethod.GET, hosts, ctx, buffer, extract);
+) => doHttpWithContingency<T>(HttpMethod.GET, sel, ctx, buffer, extract);
 
 const doHeadWithContingency = <T>(
-  hosts: string[],
+  sel: IEndpointSelector,
   ctx: string,
   extract: (b: any) => T,
   buffer?: string | Buffer
-) => doHttpWithContingency<T>(HttpMethod.HEAD, hosts, ctx, buffer, extract);
+) => doHttpWithContingency<T>(HttpMethod.HEAD, sel, ctx, buffer, extract);
 
 const doPostWithContingency = <T>(
-  hosts: string[],
+  sel: IEndpointSelector,
   ctx: string,
   extract: (b: any) => T,
   buffer?: string | Buffer
-) => doHttpWithContingency<T>(HttpMethod.POST, hosts, ctx, buffer, extract);
+) => doHttpWithContingency<T>(HttpMethod.POST, sel, ctx, buffer, extract);
 
 const doPutWithContingency = <T>(
-  hosts: string[],
+  sel: IEndpointSelector,
   ctx: string,
   extract: (b: any) => T,
   buffer?: string | Buffer
-) => doHttpWithContingency<T>(HttpMethod.PUT, hosts, ctx, buffer, extract);
+) => doHttpWithContingency<T>(HttpMethod.PUT, sel, ctx, buffer, extract);
 
 const doDeleteWithContingency = <T>(
-  hosts: string[],
+  sel: IEndpointSelector,
   ctx: string,
   extract: (b: any) => T,
   buffer?: string | Buffer
-) => doHttpWithContingency<T>(HttpMethod.DELETE, hosts, ctx, buffer, extract);
+) => doHttpWithContingency<T>(HttpMethod.DELETE, sel, ctx, buffer, extract);
 
 const projectionPath = (
   endpoint: string,
@@ -318,50 +317,220 @@ export interface IElasticSearchOps {
     batch?: number,
     idFactory?: (o: T) => string,
     sink?: (src: T, dst: IGrowableBuffer) => void
-  ): IterableIterator<Promise<IBulkInsertResult>>;
+  ): IterableIterator<Promise<IBulkOpResult>>;
+
+  bulkUpdate<T>(
+    index: string,
+    docs: IterableIterator<[string, T]> | Array<[string, T]>,
+    factory?: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>>;
+
+  bulkUpdateDocs<T>(
+    index: string,
+    docs: IterableIterator<T> | Array<T>,
+    objToId: (o: T) => string,
+    factory: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>>;
+
+  updateByQuery(
+    index: string,
+    q: RootQuery,
+    opts?: UpdateByQueryOptions
+  ): Promise<UpdateByQueryResult>;
+
+  deleteFields(
+    index: string,
+    q: RootQuery,
+    ...fields: string[]
+  ): Promise<UpdateByQueryResult>;
 
   deleteMatching(index: string, q: RootQuery): Promise<BulkDeleteResult>;
+
+  bind(index: string): IIndexBound;
+
+  bindMapped<T>(index: string, mapper: (o: any) => T): IMappedBound<T>;
+
+  close():void;
 }
 
-export interface IEndpointSelector {
-  selectEndpoint(): string;
-  endpoints(): Array<string>;
+export interface IMappedBound<T> {
+  mappings(): Promise<Mappings>;
+  settings(): Promise<Settings>;
+  exists(): Promise<boolean>;
+  deleteIndex(): Promise<boolean>;
+  createIndex(definition: IndexDefinition): Promise<boolean>;
+
+  insertRaw(payload: string | Buffer): Promise<Result>;
+  insert(payload: T): Promise<Result>;
+
+  partialUpdateRaw(id: string, payload: string | Buffer): Promise<Result>;
+
+  partialUpdate(id: string, payload: T): Promise<Result>;
+
+  saveOrUpdateRaw(id: string, payload: string | Buffer): Promise<Result>;
+  saveOrUpdate(id: string, payload: T): Promise<Result>;
+
+  refresh(): Promise<RefreshResult>;
+
+  lookup(id: string, ...fields: string[]): Promise<T>;
+
+  queryRaw(q: RootQuery, ...fields: string[]): Promise<ISearchResult<any>>;
+
+  query(q: RootQuery, ...fields: string[]): Promise<ISearchResult<T>>;
+
+  stream(
+    q: RootQuery,
+    ...fields: string[]
+  ): IterableIterator<Promise<ISearchResult<T>>>;
+
+  asyncStream(
+    q: RootQuery,
+    ...fields: string[]
+  ): AsyncIterableIterator<ISearchResult<T>>;
+
+  count(q: RootQuery): Promise<number>;
+
+  bulkInsert(
+    docs: IterableIterator<T> | Array<T>,
+    outputItems?: boolean,
+    batch?: number,
+    idFactory?: (o: T) => string,
+    sink?: (src: T, dst: IGrowableBuffer) => void
+  ): IterableIterator<Promise<IBulkOpResult>>;
+
+  bulkUpdate(
+    docs: IterableIterator<[string, T]> | Array<[string, T]>,
+    factory?: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>>;
+
+  bulkUpdateDocs(
+    docs: IterableIterator<T> | Array<T>,
+    objToId: (o: T) => string,
+    factory: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>>;
+
+  updateByQuery(
+    q: RootQuery,
+    opts?: UpdateByQueryOptions
+  ): Promise<UpdateByQueryResult>;
+
+  deleteFields(q: RootQuery, ...fields: string[]): Promise<UpdateByQueryResult>;
+
+  deleteMatching(q: RootQuery): Promise<BulkDeleteResult>;
 }
 
-class SniffingSelector implements IEndpointSelector {
-  _endpoints!: Array<string>;
+export interface IIndexBound {
+  mappings(): Promise<Mappings>;
+  settings(): Promise<Settings>;
+  exists(): Promise<boolean>;
+  deleteIndex(): Promise<boolean>;
+  createIndex(definition: IndexDefinition): Promise<boolean>;
 
-  selectEndpoint(): string {
-    throw new Error("Method not implemented.");
-  }
-  endpoints(): Array<string> {
-    return this._endpoints;
-  }
+  insertRaw(payload: string | Buffer): Promise<Result>;
+  insert<T>(payload: T): Promise<Result>;
+
+  partialUpdateRaw(id: string, payload: string | Buffer): Promise<Result>;
+
+  partialUpdate<T>(id: string, payload: T): Promise<Result>;
+
+  saveOrUpdateRaw(id: string, payload: string | Buffer): Promise<Result>;
+  saveOrUpdate<T>(id: string, payload: T): Promise<Result>;
+
+  refresh(): Promise<RefreshResult>;
+
+  lookup<T>(id: string, mapper: (o: any) => T, ...fields: string[]): Promise<T>;
+
+  queryRaw(q: RootQuery, ...fields: string[]): Promise<ISearchResult<any>>;
+
+  query<T>(
+    q: RootQuery,
+    mapper: (o: any) => T,
+    ...fields: string[]
+  ): Promise<ISearchResult<T>>;
+
+  stream<T>(
+    q: RootQuery,
+    mapper: (o: any) => T,
+    ...fields: string[]
+  ): IterableIterator<Promise<ISearchResult<T>>>;
+
+  asyncStream<T>(
+    q: RootQuery,
+    mapper: (o: any) => T,
+    ...fields: string[]
+  ): AsyncIterableIterator<ISearchResult<T>>;
+
+  count(q: RootQuery): Promise<number>;
+
+  bulkInsert<T>(
+    docs: IterableIterator<T> | Array<T>,
+    outputItems?: boolean,
+    batch?: number,
+    idFactory?: (o: T) => string,
+    sink?: (src: T, dst: IGrowableBuffer) => void
+  ): IterableIterator<Promise<IBulkOpResult>>;
+
+  bulkUpdate<T>(
+    docs: IterableIterator<[string, T]> | Array<[string, T]>,
+    factory?: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>>;
+
+  bulkUpdateDocs<T>(
+    docs: IterableIterator<T> | Array<T>,
+    objToId: (o: T) => string,
+    factory: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>>;
+
+  updateByQuery(
+    q: RootQuery,
+    opts?: UpdateByQueryOptions
+  ): Promise<UpdateByQueryResult>;
+
+  deleteFields(q: RootQuery, ...fields: string[]): Promise<UpdateByQueryResult>;
+
+  deleteMatching(q: RootQuery): Promise<BulkDeleteResult>;
 }
 
-class UncheckedSelector implements IEndpointSelector {
-  ix: number = 0;
-  _endpoints: Array<string>;
+// export interface IEndpointSelector {
+//   selectEndpoint(): string;
+//   endpoints(): Array<string>;
+// }
 
-  constructor(...endpoints: string[]) {
-    this._endpoints = endpoints;
-  }
+// class UncheckedSelector implements IEndpointSelector {
+//   ix: number = 0;
+//   _endpoints: Array<string>;
 
-  selectEndpoint(): string {
-    let eps = this.endpoints();
+//   constructor(...endpoints: string[]) {
+//     this._endpoints = endpoints;
+//   }
 
-    let next = this.ix++;
-    if (next <= 0) {
-      this.ix = next = 1;
-    }
+//   selectEndpoint(): string {
+//     let eps = this.endpoints();
 
-    return eps[next % eps.length];
-  }
+//     let next = this.ix++;
+//     if (next <= 0) {
+//       this.ix = next = 1;
+//     }
 
-  endpoints(): Array<string> {
-    return this._endpoints;
-  }
-}
+//     return eps[next % eps.length];
+//   }
+
+//   endpoints(): Array<string> {
+//     return this._endpoints;
+//   }
+// }
 
 const singleProjection = (id: string, ...fields: string[]) => {
   if (!fields || fields.length == 0) {
@@ -374,7 +543,7 @@ const singleProjection = (id: string, ...fields: string[]) => {
 };
 
 const insertBatcher = function*(
-  hostFactory: () => string[],
+  sel: IEndpointSelector,
   ctx: string,
   docs: IterableIterator<any> | Array<any>,
   outputItems: boolean = false,
@@ -389,7 +558,7 @@ const insertBatcher = function*(
     : (src: any, dst: IGrowableBuffer) => {
         dst.write(JSON.stringify(src));
       };
-  const batch = Math.min(_batch || 1000, 10000);
+  const batch = Math.min(_batch && _batch > 0 ? _batch : 1000, 10000);
 
   const buffer = new GrowableBuffer(batch * 1024);
 
@@ -406,7 +575,7 @@ const insertBatcher = function*(
     if (++curr >= batch) {
       let payload = buffer.slice();
       yield doPostWithContingency(
-        hostFactory(),
+        sel,
         ctx,
         (b: any) => BulkOpResultFactory(b, outputItems),
         payload
@@ -419,7 +588,7 @@ const insertBatcher = function*(
   if (curr) {
     let payload = buffer.slice();
     yield doPostWithContingency(
-      hostFactory(),
+      sel,
       ctx,
       (b: any) => BulkOpResultFactory(b, outputItems),
       payload
@@ -427,12 +596,145 @@ const insertBatcher = function*(
   }
 };
 
+const updateBatcher = function*(
+  sel: IEndpointSelector,
+  ctx: string,
+  docs: IterableIterator<[string, any]> | Array<[string, any]>,
+  factory: (o: [string, any]) => UpdateStatement,
+  outputItems: boolean = false,
+  _batch?: number
+) {
+  const batch = Math.min(_batch && _batch > 0 ? _batch : 1000, 10000);
+
+  const buffer = new GrowableBuffer(batch * 1024);
+
+  let curr = 0;
+
+  for (const doc of docs) {
+    let stmt = factory(doc);
+    stmt.writeTo(doc[0], buffer);
+
+    if (++curr >= batch) {
+      let payload = buffer.slice();
+      yield doPostWithContingency(
+        sel,
+        ctx,
+        (b: any) => BulkOpResultFactory(b, outputItems),
+        payload
+      );
+
+      curr = 0;
+    }
+  }
+
+  if (curr) {
+    let payload = buffer.slice();
+    yield doPostWithContingency(
+      sel,
+      ctx,
+      (b: any) => BulkOpResultFactory(b, outputItems),
+      payload
+    );
+  }
+};
+
+const tupleWrap = function*(
+  docs: IterableIterator<any> | any[],
+  objToId: (o: any) => string
+) {
+  for (const doc of docs) {
+    yield [objToId(doc), doc];
+  }
+};
+
 class ElasticSearchOps implements IElasticSearchOps {
+  close(): void {
+    this.sel.close();
+  }
+  bind(index: string): IIndexBound {
+    return new IndexBound(index, this);
+  }
+  bindMapped<T>(index: string, mapper: (o: any) => T): IMappedBound<T> {
+    return new MappedBound(index, this, mapper);
+  }
+
+  readonly sel: IEndpointSelector;
+
+  constructor(sel: IEndpointSelector) {
+    this.sel = sel;
+  }
+
+  deleteFields(
+    index: string,
+    q: RootQuery,
+    ...fields: string[]
+  ): Promise<UpdateByQueryResult> {
+    return this.updateByQuery(
+      index,
+      q.updating(fields.map(f => `ctx._source.remove('${f}');`).join(""))
+    );
+  }
+  updateByQuery(
+    index: string,
+    q: RootQuery,
+    opts?: UpdateByQueryOptions
+  ): Promise<UpdateByQueryResult> {
+    let op = opts ? opts.toQueryString() : null;
+    let path = op
+      ? `_update_by_query?${op}`
+      : "_update_by_query?conflicts=proceed";
+    path = concat2(index, path);
+
+    return doPostWithContingency(
+      this.sel,
+      path,
+      (b: any) => {
+        let rv = new UpdateByQueryResult();
+        Object.assign(rv, b);
+        return rv;
+      },
+      q.json()
+    );
+  }
+  bulkUpdateDocs<T>(
+    index: string,
+    docs: IterableIterator<T> | T[],
+    objToId: (o: T) => string,
+    factory: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>> {
+    let stream = tupleWrap(docs, objToId) as IterableIterator<[string, T]>;
+    return this.bulkUpdate(index, stream, factory, outputItems, batch);
+  }
+
+  bulkUpdate<T>(
+    index: string,
+    docs: IterableIterator<[string, T]> | [string, T][],
+    factory?: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>> {
+    let ctx = concat3(index, DEFAULT_DOC_TYPE, "_bulk");
+    let self = this;
+    let fac = factory ? factory : UpdateStatement.doc;
+
+    let batcher = updateBatcher(
+      this.sel,
+      ctx,
+      docs,
+      fac,
+      outputItems,
+      batch
+    );
+    return batcher;
+  }
+
   deleteMatching(index: string, q: RootQuery): Promise<BulkDeleteResult> {
     let path = concat2(index, "_delete_by_query?conflicts=proceed");
 
     return doPostWithContingency(
-      this.availableEndpoints(),
+      this.sel,
       path,
       BulkDeleteResult.wrap,
       q.json()
@@ -446,12 +748,12 @@ class ElasticSearchOps implements IElasticSearchOps {
     batch?: number,
     idFactory?: (o: T) => string,
     sink?: (src: T, dst: IGrowableBuffer) => void
-  ): IterableIterator<Promise<IBulkInsertResult>> {
+  ): IterableIterator<Promise<IBulkOpResult>> {
     let ctx = concat3(index, DEFAULT_DOC_TYPE, "_bulk");
     let self = this;
 
     let batcher = insertBatcher(
-      () => self.availableEndpoints(),
+      this.sel,
       ctx,
       docs,
       outputItems,
@@ -462,6 +764,7 @@ class ElasticSearchOps implements IElasticSearchOps {
 
     return batcher;
   }
+
   asyncStream<T>(
     index: string,
     q: RootQuery,
@@ -475,7 +778,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     let path = concat2(index, "_count?filter_path=count");
 
     return doPostWithContingency(
-      this.availableEndpoints(),
+      this.sel,
       path,
       (b: any) => b.count as number,
       q.json()
@@ -509,7 +812,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     let rmapper = (r: any) => MappedSearchResult.create(r, mapper);
 
     let head = doPostWithContingency(
-      this.availableEndpoints(),
+      this.sel,
       path,
       rmapper,
       q.json()
@@ -525,7 +828,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     let factory = (id: string) =>
       doHttpWithContingencyAndFactory(
         HttpMethod.POST,
-        this.availableEndpoints(),
+        this.sel,
         path,
         () => {
           buffer.scroll_id = id;
@@ -551,7 +854,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     }
 
     return doPostWithContingency(
-      this.availableEndpoints(),
+      this.sel,
       path,
       r => MappedSearchResult.create(r, mapper),
       q.json()
@@ -574,7 +877,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   exists(index: string): Promise<boolean> {
     let path = index;
     return doHeadWithContingency(
-      this.availableEndpoints(),
+      this.sel,
       path,
       _ => true
     ).catch(_ => false);
@@ -585,7 +888,7 @@ class ElasticSearchOps implements IElasticSearchOps {
       if (e) {
         let path = index;
         return doDeleteWithContingency(
-          this.availableEndpoints(),
+          this.sel,
           path,
           _ => true
         ).catch(_ => false);
@@ -602,7 +905,7 @@ class ElasticSearchOps implements IElasticSearchOps {
         let path = index;
 
         return doPutWithContingency(
-          this.availableEndpoints(),
+          this.sel,
           path,
           _ => true,
           definition.json()
@@ -622,7 +925,7 @@ class ElasticSearchOps implements IElasticSearchOps {
       singleProjection(id, ...fields)
     );
 
-    return doGetWithContingency(this.availableEndpoints(), path, o => {
+    return doGetWithContingency(this.sel, path, o => {
       let rv = o && o._source ? mapper(o._source) : null;
       return rv;
     });
@@ -631,7 +934,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     let path = concat2(index, "_refresh");
 
     return doPostWithContingency(
-      this.availableEndpoints(),
+      this.sel,
       path,
       Converter.castToRefreshResult
     );
@@ -640,7 +943,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   insertRaw(index: string, payload: string | Buffer): Promise<Result> {
     let path = concat2(index, DEFAULT_DOC_TYPE);
     return doPostWithContingency(
-      this.availableEndpoints(),
+      this.sel,
       path,
       Converter.castToResult,
       payload
@@ -654,7 +957,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     let path = `${index}/${DEFAULT_DOC_TYPE}/${id}/_update`;
 
     return doPostWithContingency(
-      this.availableEndpoints(),
+      this.sel,
       path,
       Converter.castToResult,
       payload
@@ -679,7 +982,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     let path = concat3(index, DEFAULT_DOC_TYPE, id);
 
     return doPutWithContingency(
-      this.availableEndpoints(),
+      this.sel,
       path,
       Converter.castToResult,
       payload
@@ -688,41 +991,294 @@ class ElasticSearchOps implements IElasticSearchOps {
   settings(index: string): Promise<Settings> {
     let path = concat2(index, "_settings");
 
-    return doGetWithContingency(this.availableEndpoints(), path, o => {
+    return doGetWithContingency(this.sel, path, o => {
       (o = o[index]) && (o = o["settings"]) && (o = o["index"]);
       return Converter.castToSettings(o);
     });
   }
 
   info(host?: string | undefined): Promise<NodeInfo> {
-    let h = host || this.selectEndpoint();
+    let h = host || this.sel.available().next().value.url();
 
     return doGet(h, Converter.castToNodeInfo);
-  }
-  selector: IEndpointSelector;
-
-  constructor(selector: IEndpointSelector) {
-    this.selector = selector;
   }
 
   mappings(index: string): Promise<Mappings> {
     let path = concat2(index, "_mappings");
 
-    return doGetWithContingency(this.availableEndpoints(), path, (o: any) =>
+    return doGetWithContingency(this.sel, path, (o: any) =>
       Converter.castToMapping(o[index])
     );
   }
+}
 
-  selectEndpoint() {
-    return this.selector.selectEndpoint();
+class IndexBound implements IIndexBound {
+  readonly index: string;
+  readonly ops: IElasticSearchOps;
+
+  constructor(index: string, ops: IElasticSearchOps) {
+    this.index = index;
+    this.ops = ops;
   }
 
-  availableEndpoints() {
-    return this.selector.endpoints();
+  mappings(): Promise<Mappings> {
+    return this.ops.mappings(this.index);
+  }
+  settings(): Promise<Settings> {
+    return this.ops.settings(this.index);
+  }
+  exists(): Promise<boolean> {
+    return this.ops.exists(this.index);
+  }
+  deleteIndex(): Promise<boolean> {
+    return this.ops.deleteIndex(this.index);
+  }
+  createIndex(definition: IndexDefinition): Promise<boolean> {
+    return this.ops.createIndex(this.index, definition);
+  }
+  insertRaw(payload: string | Buffer): Promise<Result> {
+    return this.ops.insertRaw(this.index, payload);
+  }
+  insert<T>(payload: T): Promise<Result> {
+    return this.ops.insert(this.index, payload);
+  }
+  partialUpdateRaw(id: string, payload: string | Buffer): Promise<Result> {
+    return this.ops.partialUpdateRaw(this.index, id, payload);
+  }
+  partialUpdate<T>(id: string, payload: T): Promise<Result> {
+    return this.ops.partialUpdate(this.index, id, payload);
+  }
+  saveOrUpdateRaw(id: string, payload: string | Buffer): Promise<Result> {
+    return this.ops.saveOrUpdateRaw(this.index, id, payload);
+  }
+  saveOrUpdate<T>(id: string, payload: T): Promise<Result> {
+    return this.ops.saveOrUpdate(this.index, id, payload);
+  }
+  refresh(): Promise<RefreshResult> {
+    return this.ops.refresh(this.index);
+  }
+  lookup<T>(
+    id: string,
+    mapper: (o: any) => T,
+    ...fields: string[]
+  ): Promise<T> {
+    return this.ops.lookup(this.index, id, mapper, ...fields);
+  }
+  queryRaw(q: RootQuery, ...fields: string[]): Promise<ISearchResult<any>> {
+    return this.ops.queryRaw(this.index, q, ...fields);
+  }
+  query<T>(
+    q: RootQuery,
+    mapper: (o: any) => T,
+    ...fields: string[]
+  ): Promise<ISearchResult<T>> {
+    return this.ops.query(this.index, q, mapper, ...fields);
+  }
+  stream<T>(
+    q: RootQuery,
+    mapper: (o: any) => T,
+    ...fields: string[]
+  ): IterableIterator<Promise<ISearchResult<T>>> {
+    return this.ops.stream(this.index, q, mapper, ...fields);
+  }
+  asyncStream<T>(
+    q: RootQuery,
+    mapper: (o: any) => T,
+    ...fields: string[]
+  ): AsyncIterableIterator<ISearchResult<T>> {
+    return this.ops.asyncStream(this.index, q, mapper, ...fields);
+  }
+  count(q: RootQuery): Promise<number> {
+    return this.ops.count(this.index, q);
+  }
+  bulkInsert<T>(
+    docs: IterableIterator<T> | T[],
+    outputItems?: boolean,
+    batch?: number,
+    idFactory?: (o: T) => string,
+    sink?: (src: T, dst: IGrowableBuffer) => void
+  ): IterableIterator<Promise<IBulkOpResult>> {
+    return this.ops.bulkInsert(
+      this.index,
+      docs,
+      outputItems,
+      batch,
+      idFactory,
+      sink
+    );
+  }
+  bulkUpdate<T>(
+    docs: IterableIterator<[string, T]> | [string, T][],
+    factory?: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>> {
+    return this.ops.bulkUpdate(this.index, docs, factory, outputItems, batch);
+  }
+  bulkUpdateDocs<T>(
+    docs: IterableIterator<T> | T[],
+    objToId: (o: T) => string,
+    factory: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>> {
+    return this.ops.bulkUpdateDocs(
+      this.index,
+      docs,
+      objToId,
+      factory,
+      outputItems,
+      batch
+    );
+  }
+  updateByQuery(
+    q: RootQuery,
+    opts?: UpdateByQueryOptions
+  ): Promise<UpdateByQueryResult> {
+    return this.ops.updateByQuery(this.index, q, opts);
+  }
+  deleteFields(
+    q: RootQuery,
+    ...fields: string[]
+  ): Promise<UpdateByQueryResult> {
+    return this.ops.deleteFields(this.index, q, ...fields);
+  }
+  deleteMatching(q: RootQuery): Promise<BulkDeleteResult> {
+    return this.ops.deleteMatching(this.index, q);
+  }
+}
+
+class MappedBound<T> implements IMappedBound<T> {
+  readonly index: string;
+  readonly ops: IElasticSearchOps;
+  readonly mapper: (o: any) => T;
+
+  constructor(index: string, ops: IElasticSearchOps, mapper: (o: any) => T) {
+    this.index = index;
+    this.ops = ops;
+    this.mapper = mapper;
+  }
+
+  mappings(): Promise<Mappings> {
+    return this.ops.mappings(this.index);
+  }
+  settings(): Promise<Settings> {
+    return this.ops.settings(this.index);
+  }
+  exists(): Promise<boolean> {
+    return this.ops.exists(this.index);
+  }
+  deleteIndex(): Promise<boolean> {
+    return this.ops.deleteIndex(this.index);
+  }
+  createIndex(definition: IndexDefinition): Promise<boolean> {
+    return this.ops.createIndex(this.index, definition);
+  }
+  insertRaw(payload: string | Buffer): Promise<Result> {
+    return this.ops.insertRaw(this.index, payload);
+  }
+  insert<T>(payload: T): Promise<Result> {
+    return this.ops.insert(this.index, payload);
+  }
+  partialUpdateRaw(id: string, payload: string | Buffer): Promise<Result> {
+    return this.ops.partialUpdateRaw(this.index, id, payload);
+  }
+  partialUpdate<T>(id: string, payload: T): Promise<Result> {
+    return this.ops.partialUpdate(this.index, id, payload);
+  }
+  saveOrUpdateRaw(id: string, payload: string | Buffer): Promise<Result> {
+    return this.ops.saveOrUpdateRaw(this.index, id, payload);
+  }
+  saveOrUpdate<T>(id: string, payload: T): Promise<Result> {
+    return this.ops.saveOrUpdate(this.index, id, payload);
+  }
+  refresh(): Promise<RefreshResult> {
+    return this.ops.refresh(this.index);
+  }
+
+  lookup(id: string, ...fields: string[]): Promise<T> {
+    return this.ops.lookup(this.index, id, this.mapper, ...fields);
+  }
+  queryRaw(q: RootQuery, ...fields: string[]): Promise<ISearchResult<any>> {
+    return this.ops.queryRaw(this.index, q, ...fields);
+  }
+  query(q: RootQuery, ...fields: string[]): Promise<ISearchResult<T>> {
+    return this.ops.query(this.index, q, this.mapper, ...fields);
+  }
+  stream(
+    q: RootQuery,
+    ...fields: string[]
+  ): IterableIterator<Promise<ISearchResult<T>>> {
+    return this.ops.stream(this.index, q, this.mapper, ...fields);
+  }
+  asyncStream(
+    q: RootQuery,
+    ...fields: string[]
+  ): AsyncIterableIterator<ISearchResult<T>> {
+    return this.ops.asyncStream(this.index, q, this.mapper, ...fields);
+  }
+  count(q: RootQuery): Promise<number> {
+    return this.ops.count(this.index, q);
+  }
+  bulkInsert(
+    docs: IterableIterator<T> | T[],
+    outputItems?: boolean,
+    batch?: number,
+    idFactory?: (o: T) => string,
+    sink?: (src: T, dst: IGrowableBuffer) => void
+  ): IterableIterator<Promise<IBulkOpResult>> {
+    return this.ops.bulkInsert(
+      this.index,
+      docs,
+      outputItems,
+      batch,
+      idFactory,
+      sink
+    );
+  }
+  bulkUpdate(
+    docs: IterableIterator<[string, T]> | [string, T][],
+    factory?: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>> {
+    return this.ops.bulkUpdate(this.index, docs, factory, outputItems, batch);
+  }
+  bulkUpdateDocs(
+    docs: IterableIterator<T> | T[],
+    objToId: (o: T) => string,
+    factory: (o: [string, T]) => UpdateStatement,
+    outputItems?: boolean,
+    batch?: number
+  ): IterableIterator<Promise<IBulkOpResult>> {
+    return this.ops.bulkUpdateDocs(
+      this.index,
+      docs,
+      objToId,
+      factory,
+      outputItems,
+      batch
+    );
+  }
+  updateByQuery(
+    q: RootQuery,
+    opts?: UpdateByQueryOptions
+  ): Promise<UpdateByQueryResult> {
+    return this.ops.updateByQuery(this.index, q, opts);
+  }
+  deleteFields(
+    q: RootQuery,
+    ...fields: string[]
+  ): Promise<UpdateByQueryResult> {
+    return this.ops.deleteFields(this.index, q, ...fields);
+  }
+  deleteMatching(q: RootQuery): Promise<BulkDeleteResult> {
+    return this.ops.deleteMatching(this.index, q);
   }
 }
 
 export const OpsFactory = (...urls: string[]): IElasticSearchOps => {
-  let sel = new UncheckedSelector(...urls);
+  //let sel = new UncheckedSelector(...urls);
+  let sel = EndpointSelectorFactory(60000, ...urls);
   return new ElasticSearchOps(sel);
 };

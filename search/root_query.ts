@@ -1,4 +1,5 @@
 import { Sort } from "./sort";
+import { UpdateStatement } from "../ops/exports";
 
 export class RootQuery {
   from?: number;
@@ -14,6 +15,8 @@ export class RootQuery {
   sort?: Array<Record<string, Sort>>;
 
   search_after?: Array<any>;
+
+  script: UpdateStatement;
 
   aggs?: any;
 
@@ -51,5 +54,27 @@ export class RootQuery {
   scrollTtlOrDefault(): number {
     let ttl = this.scrollTTL;
     return !ttl || ttl < 1 ? 60 : ttl;
+  }
+
+  orderBy(term: string, s: Sort): RootQuery {
+    let sort = this.sort;
+    if (sort == null) {
+      this.sort = sort = [];
+    }
+    let o: any = {};
+    o[term] = s;
+    sort.push(o);
+
+    return this;
+  }
+
+  updating(
+    source: string,
+    lang?: string,
+    params?: Record<string, any>
+  ): RootQuery {
+    this.script = UpdateStatement.script(source, lang, params);
+
+    return this;
   }
 }
