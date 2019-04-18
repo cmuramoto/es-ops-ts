@@ -59,6 +59,16 @@ const humongous_stream = async () => {
     }
   }
 
+  if (expectedLoops != loops) {
+    console.log(
+      `FUCK. Actual Roundtrips != Expected Roundtrips: (${loops}!=${expectedLoops})`
+    );
+  } else {
+    console.log(
+      `Actual Roundtrips == Expected Roundtrips: (${loops}==${expectedLoops})`
+    );
+  }
+
   q = RootQuery.matchAll();
   ops.count("pf", q).then(v => {
     console.log(count);
@@ -69,15 +79,7 @@ const humongous_stream = async () => {
       console.log(`Scroll Count == Query Count: (${count}==${v})`);
     }
 
-    if (expectedLoops != loops) {
-      console.log(
-        `FUCK. Actual Roundtrips != Expected Roundtrips: (${loops}!=${expectedLoops})`
-      );
-    } else {
-      console.log(
-        `Actual Roundtrips == Expected Roundtrips: (${loops}==${expectedLoops})`
-      );
-    }
+    
   });
 };
 

@@ -1,5 +1,5 @@
 {
-  "name": "es-ops-ts",
+  "name": "@nxcd/es-ops-ts",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -10,10 +10,11 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "axios": "^0.18.0",
+    "unirest": "^0.6.0",
     "lite-server": "^2.4.0"
   },
   "dependencies": {
-    "@types/node": "^11.13.0",
-    "unirest": "^0.6.0"
+    "@types/node": "^11.13.0"
   }
 }

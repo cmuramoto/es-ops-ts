@@ -116,6 +116,19 @@ const doBasicCrud = async () => {
       console.log("Lookup!=query!!!");
     }
   }
+
+  id = "some_random_id_that_should_not_exist";
+  rec = await ops.lookup("docs", id, LeDocMapper);
+
+  if (rec == null) {
+    console.log(`Unable to fetch ${id}`);
+  } else {
+    if (rec.path !== updatedPath) {
+      console.log("Update failed");
+    } else {
+      console.log("Updated confirmed!");
+    }
+  }
 };
 
 doBasicCrud().finally(() => ops.close());

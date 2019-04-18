@@ -1,12 +1,3 @@
-const unirest = require("unirest");
-
-type HttpResponse = {
-  status: number;
-  body: {};
-  raw_body: any;
-  error: {} | PromiseLike<{}> | undefined;
-};
-
 import {
   Mappings,
   Settings,
@@ -35,7 +26,9 @@ import {
 
 import { IGrowableBuffer, GrowableBuffer } from "../ops/buffer_sink";
 
-import { IEndpointSelector, EndpointSelectorFactory, HttpHost } from "../util/http_client";
+import { IEndpointSelector, EndpointSelectorFactory } from "../util/ha_client";
+
+import { ActiveDispatch } from "../util/rest_spi";
 
 //TODO
 const DEFAULT_DOC_TYPE = "doc";
@@ -65,166 +58,6 @@ const concat3 = (l: string, r: string, s: string) => {
     : `${l}/${r}/${s}`;
 };
 
-const doGet = <T>(path: string, extract: (b: any) => T) => {
-  return new Promise<T>((resolve, reject) => {
-    unirest
-      .get(path)
-      .send()
-      .end((res: HttpResponse) => {
-        return resolve(extract(res.body));
-      });
-  });
-};
-
-enum HttpMethod {
-  GET,
-  PUT,
-  POST,
-  DELETE,
-  HEAD
-}
-
-const prepareCall = (
-  method: HttpMethod,
-  url: string,
-  buffer: string | Buffer | undefined
-) => {
-  let o;
-  switch (method) {
-    case HttpMethod.GET:
-      o = unirest.get(url);
-      break;
-    case HttpMethod.PUT:
-      o = unirest.put(url);
-      break;
-    case HttpMethod.POST:
-      o = unirest.post(url);
-      break;
-    case HttpMethod.DELETE:
-      o = unirest.delete(url);
-      break;
-    case HttpMethod.HEAD:
-      o = unirest.head(url);
-      break;
-    default:
-      throw "Unusupported " + method;
-  }
-  o = o.headers({
-    "Content-Type": "application/json"
-  });
-  return buffer ? o.send(buffer) : o.send();
-};
-
-const tryExtractError = (err?: any) => {
-  if (err) {
-    try {
-      return JSON.parse(err);
-    } catch (e) {
-      return err;
-    }
-  }
-};
-
-const performCall = <T>(
-  method: HttpMethod,
-  sel: IEndpointSelector,
-  hosts: IterableIterator<HttpHost>,
-  ctx: string,
-  buffer: string | Buffer | undefined,
-  extract: (b: any) => T
-) => {
-  let res = hosts.next();
-  let curr = res.done ? null : res.value;
-  let rv: Promise<T>;
-
-  if (!curr) {
-    rv = Promise.reject("Exausted Hosts") as Promise<T>;
-  } else {
-    rv = new Promise<T>((resolve, reject) => {
-      let path = concat2(curr.url(), ctx);
-      prepareCall(method, path, buffer).end((res: HttpResponse) => {
-        //TODO better status handling
-        if (res.error || res.status >= 400) {
-          if (res.status) {
-            resolve();
-          } else {
-            //Network error
-            sel.onFailure(curr);
-            reject({
-              host: curr,
-              err: res.error,
-              body: tryExtractError(res.raw_body)
-            });
-          }
-        } else {
-          resolve(extract(res.body));
-        }
-      });
-    }) //
-      .catch(e => {
-        console.log(JSON.stringify(e));
-        return performCall<T>(method, sel, hosts, ctx, buffer, extract);
-      }) as Promise<T>;
-  }
-
-  return rv;
-};
-
-const doHttpWithContingency = <T>(
-  method: HttpMethod,
-  sel: IEndpointSelector,
-  ctx: string,
-  buffer: string | Buffer | undefined,
-  extract: (b: any) => T
-) => {
-  return performCall(method, sel, sel.available(), ctx, buffer, extract);
-};
-
-const doHttpWithContingencyAndFactory = <T>(
-  method: HttpMethod,
-  sel: IEndpointSelector,
-  ctx: string,
-  factory: () => Buffer | string,
-  extract: (b: any) => T
-) => {
-  return doHttpWithContingency(method, sel, ctx, factory(), extract, );
-};
-
-const doGetWithContingency = <T>(
-  sel: IEndpointSelector,
-  ctx: string,
-  extract: (b: any) => T,
-  buffer?: string | Buffer
-) => doHttpWithContingency<T>(HttpMethod.GET, sel, ctx, buffer, extract);
-
-const doHeadWithContingency = <T>(
-  sel: IEndpointSelector,
-  ctx: string,
-  extract: (b: any) => T,
-  buffer?: string | Buffer
-) => doHttpWithContingency<T>(HttpMethod.HEAD, sel, ctx, buffer, extract);
-
-const doPostWithContingency = <T>(
-  sel: IEndpointSelector,
-  ctx: string,
-  extract: (b: any) => T,
-  buffer?: string | Buffer
-) => doHttpWithContingency<T>(HttpMethod.POST, sel, ctx, buffer, extract);
-
-const doPutWithContingency = <T>(
-  sel: IEndpointSelector,
-  ctx: string,
-  extract: (b: any) => T,
-  buffer?: string | Buffer
-) => doHttpWithContingency<T>(HttpMethod.PUT, sel, ctx, buffer, extract);
-
-const doDeleteWithContingency = <T>(
-  sel: IEndpointSelector,
-  ctx: string,
-  extract: (b: any) => T,
-  buffer?: string | Buffer
-) => doHttpWithContingency<T>(HttpMethod.DELETE, sel, ctx, buffer, extract);
-
 const projectionPath = (
   endpoint: string,
   ttl?: number,
@@ -251,7 +84,7 @@ const projectionPath = (
 export interface IElasticSearchOps {
   mappings(index: string): Promise<Mappings>;
   settings(index: string): Promise<Settings>;
-  info(host?: string): Promise<NodeInfo>;
+  info(): Promise<NodeInfo>;
   exists(index: string): Promise<boolean>;
   deleteIndex(index: string): Promise<boolean>;
   createIndex(index: string, definition: IndexDefinition): Promise<boolean>;
@@ -354,7 +187,7 @@ export interface IElasticSearchOps {
 
   bindMapped<T>(index: string, mapper: (o: any) => T): IMappedBound<T>;
 
-  close():void;
+  close(): void;
 }
 
 export interface IMappedBound<T> {
@@ -503,35 +336,6 @@ export interface IIndexBound {
   deleteMatching(q: RootQuery): Promise<BulkDeleteResult>;
 }
 
-// export interface IEndpointSelector {
-//   selectEndpoint(): string;
-//   endpoints(): Array<string>;
-// }
-
-// class UncheckedSelector implements IEndpointSelector {
-//   ix: number = 0;
-//   _endpoints: Array<string>;
-
-//   constructor(...endpoints: string[]) {
-//     this._endpoints = endpoints;
-//   }
-
-//   selectEndpoint(): string {
-//     let eps = this.endpoints();
-
-//     let next = this.ix++;
-//     if (next <= 0) {
-//       this.ix = next = 1;
-//     }
-
-//     return eps[next % eps.length];
-//   }
-
-//   endpoints(): Array<string> {
-//     return this._endpoints;
-//   }
-// }
-
 const singleProjection = (id: string, ...fields: string[]) => {
   if (!fields || fields.length == 0) {
     return id + "?filter_path=_source";
@@ -542,110 +346,112 @@ const singleProjection = (id: string, ...fields: string[]) => {
   }
 };
 
-const insertBatcher = function*(
-  sel: IEndpointSelector,
-  ctx: string,
-  docs: IterableIterator<any> | Array<any>,
-  outputItems: boolean = false,
-  _batch?: number,
-  idFactory?: (o: any) => string,
-  _sink?: (src: any, dst: IGrowableBuffer) => void
-) {
-  const pre = Buffer.from('{"index": {}}\n');
-  const post = Buffer.from("\n");
-  const sink = _sink
-    ? _sink
-    : (src: any, dst: IGrowableBuffer) => {
-        dst.write(JSON.stringify(src));
-      };
-  const batch = Math.min(_batch && _batch > 0 ? _batch : 1000, 10000);
+class OpSupport {
+  static *tupleWrap<T>(
+    docs: IterableIterator<T> | T[],
+    objToId: (o: T) => string
+  ): IterableIterator<[string, T]> {
+    for (const doc of docs) {
+      yield [objToId(doc), doc];
+    }
+  }
 
-  const buffer = new GrowableBuffer(batch * 1024);
+  static *bulkInsert<T>(
+    sel: IEndpointSelector,
+    ctx: string,
+    docs: IterableIterator<T> | Array<T>,
+    outputItems: boolean = false,
+    _batch?: number,
+    idFactory?: (o: any) => string,
+    _sink?: (src: any, dst: IGrowableBuffer) => void
+  ): IterableIterator<Promise<IBulkOpResult>> {
+    const pre = Buffer.from('{"index": {}}\n');
+    const post = Buffer.from("\n");
+    const sink = _sink
+      ? _sink
+      : (src: any, dst: IGrowableBuffer) => {
+          dst.write(JSON.stringify(src));
+        };
+    const batch = Math.min(_batch && _batch > 0 ? _batch : 1000, 10000);
 
-  let curr = 0;
+    const buffer = new GrowableBuffer(batch * 1024);
 
-  for (const doc of docs) {
-    let header = idFactory
-      ? Buffer.from(`{"index":{"_id": "${idFactory(doc)}"}}\n`)
-      : pre;
-    buffer.writeBuffer(header);
-    sink(doc, buffer);
-    buffer.writeBuffer(post);
+    let curr = 0;
 
-    if (++curr >= batch) {
+    for (const doc of docs) {
+      let header = idFactory
+        ? Buffer.from(`{"index":{"_id": "${idFactory(doc)}"}}\n`)
+        : pre;
+      buffer.writeBuffer(header);
+      sink(doc, buffer);
+      buffer.writeBuffer(post);
+
+      if (++curr >= batch) {
+        let payload = buffer.slice();
+        yield ActiveDispatch.doPostWithContingency(
+          sel,
+          ctx,
+          (b: any) => BulkOpResultFactory(b, outputItems),
+          payload
+        );
+
+        curr = 0;
+      }
+    }
+
+    if (curr) {
       let payload = buffer.slice();
-      yield doPostWithContingency(
+      yield ActiveDispatch.doPostWithContingency(
         sel,
         ctx,
         (b: any) => BulkOpResultFactory(b, outputItems),
         payload
       );
-
-      curr = 0;
     }
   }
 
-  if (curr) {
-    let payload = buffer.slice();
-    yield doPostWithContingency(
-      sel,
-      ctx,
-      (b: any) => BulkOpResultFactory(b, outputItems),
-      payload
-    );
-  }
-};
+  static *bulkUpdate<T>(
+    sel: IEndpointSelector,
+    ctx: string,
+    docs: IterableIterator<[string, T]> | Array<[string, T]>,
+    factory: (o: [string, T]) => UpdateStatement,
+    outputItems: boolean = false,
+    _batch?: number
+  ) {
+    const batch = Math.min(_batch && _batch > 0 ? _batch : 1000, 10000);
 
-const updateBatcher = function*(
-  sel: IEndpointSelector,
-  ctx: string,
-  docs: IterableIterator<[string, any]> | Array<[string, any]>,
-  factory: (o: [string, any]) => UpdateStatement,
-  outputItems: boolean = false,
-  _batch?: number
-) {
-  const batch = Math.min(_batch && _batch > 0 ? _batch : 1000, 10000);
+    const buffer = new GrowableBuffer(batch * 1024);
 
-  const buffer = new GrowableBuffer(batch * 1024);
+    let curr = 0;
 
-  let curr = 0;
+    for (const doc of docs) {
+      let stmt = factory(doc);
+      stmt.writeTo(doc[0], buffer);
 
-  for (const doc of docs) {
-    let stmt = factory(doc);
-    stmt.writeTo(doc[0], buffer);
+      if (++curr >= batch) {
+        let payload = buffer.slice();
+        yield ActiveDispatch.doPostWithContingency(
+          sel,
+          ctx,
+          (b: any) => BulkOpResultFactory(b, outputItems),
+          payload
+        );
 
-    if (++curr >= batch) {
+        curr = 0;
+      }
+    }
+
+    if (curr) {
       let payload = buffer.slice();
-      yield doPostWithContingency(
+      yield ActiveDispatch.doPostWithContingency(
         sel,
         ctx,
         (b: any) => BulkOpResultFactory(b, outputItems),
         payload
       );
-
-      curr = 0;
     }
   }
-
-  if (curr) {
-    let payload = buffer.slice();
-    yield doPostWithContingency(
-      sel,
-      ctx,
-      (b: any) => BulkOpResultFactory(b, outputItems),
-      payload
-    );
-  }
-};
-
-const tupleWrap = function*(
-  docs: IterableIterator<any> | any[],
-  objToId: (o: any) => string
-) {
-  for (const doc of docs) {
-    yield [objToId(doc), doc];
-  }
-};
+}
 
 class ElasticSearchOps implements IElasticSearchOps {
   close(): void {
@@ -685,7 +491,7 @@ class ElasticSearchOps implements IElasticSearchOps {
       : "_update_by_query?conflicts=proceed";
     path = concat2(index, path);
 
-    return doPostWithContingency(
+    return ActiveDispatch.doPostWithContingency(
       this.sel,
       path,
       (b: any) => {
@@ -704,7 +510,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     outputItems?: boolean,
     batch?: number
   ): IterableIterator<Promise<IBulkOpResult>> {
-    let stream = tupleWrap(docs, objToId) as IterableIterator<[string, T]>;
+    let stream = OpSupport.tupleWrap(docs, objToId);
     return this.bulkUpdate(index, stream, factory, outputItems, batch);
   }
 
@@ -716,10 +522,9 @@ class ElasticSearchOps implements IElasticSearchOps {
     batch?: number
   ): IterableIterator<Promise<IBulkOpResult>> {
     let ctx = concat3(index, DEFAULT_DOC_TYPE, "_bulk");
-    let self = this;
     let fac = factory ? factory : UpdateStatement.doc;
 
-    let batcher = updateBatcher(
+    let batcher = OpSupport.bulkUpdate(
       this.sel,
       ctx,
       docs,
@@ -733,7 +538,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   deleteMatching(index: string, q: RootQuery): Promise<BulkDeleteResult> {
     let path = concat2(index, "_delete_by_query?conflicts=proceed");
 
-    return doPostWithContingency(
+    return ActiveDispatch.doPostWithContingency(
       this.sel,
       path,
       BulkDeleteResult.wrap,
@@ -750,9 +555,8 @@ class ElasticSearchOps implements IElasticSearchOps {
     sink?: (src: T, dst: IGrowableBuffer) => void
   ): IterableIterator<Promise<IBulkOpResult>> {
     let ctx = concat3(index, DEFAULT_DOC_TYPE, "_bulk");
-    let self = this;
 
-    let batcher = insertBatcher(
+    let batcher = OpSupport.bulkInsert(
       this.sel,
       ctx,
       docs,
@@ -777,7 +581,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   count(index: string, q: RootQuery): Promise<number> {
     let path = concat2(index, "_count?filter_path=count");
 
-    return doPostWithContingency(
+    return ActiveDispatch.doPostWithContingency(
       this.sel,
       path,
       (b: any) => b.count as number,
@@ -811,7 +615,7 @@ class ElasticSearchOps implements IElasticSearchOps {
 
     let rmapper = (r: any) => MappedSearchResult.create(r, mapper);
 
-    let head = doPostWithContingency(
+    let head = ActiveDispatch.doPostWithContingency(
       this.sel,
       path,
       rmapper,
@@ -826,8 +630,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     path = SCROLL_PATH;
 
     let factory = (id: string) =>
-      doHttpWithContingencyAndFactory(
-        HttpMethod.POST,
+      ActiveDispatch.doPostWithContingencyAndFactory(
         this.sel,
         path,
         () => {
@@ -853,7 +656,7 @@ class ElasticSearchOps implements IElasticSearchOps {
       path = projectionPath(index, 0, ...fields);
     }
 
-    return doPostWithContingency(
+    return ActiveDispatch.doPostWithContingency(
       this.sel,
       path,
       r => MappedSearchResult.create(r, mapper),
@@ -876,18 +679,16 @@ class ElasticSearchOps implements IElasticSearchOps {
 
   exists(index: string): Promise<boolean> {
     let path = index;
-    return doHeadWithContingency(
-      this.sel,
-      path,
-      _ => true
-    ).catch(_ => false);
+    return ActiveDispatch.doHeadWithContingency(this.sel, path, _ => {
+      return true;
+    }).then(o => (o ? o : false));
   }
 
   deleteIndex(index: string): Promise<boolean> {
     return this.exists(index).then(e => {
       if (e) {
         let path = index;
-        return doDeleteWithContingency(
+        return ActiveDispatch.doDeleteWithContingency(
           this.sel,
           path,
           _ => true
@@ -904,7 +705,7 @@ class ElasticSearchOps implements IElasticSearchOps {
       } else {
         let path = index;
 
-        return doPutWithContingency(
+        return ActiveDispatch.doPutWithContingency(
           this.sel,
           path,
           _ => true,
@@ -925,7 +726,7 @@ class ElasticSearchOps implements IElasticSearchOps {
       singleProjection(id, ...fields)
     );
 
-    return doGetWithContingency(this.sel, path, o => {
+    return ActiveDispatch.doGetWithContingency(this.sel, path, o => {
       let rv = o && o._source ? mapper(o._source) : null;
       return rv;
     });
@@ -933,7 +734,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   refresh(index: string): Promise<RefreshResult> {
     let path = concat2(index, "_refresh");
 
-    return doPostWithContingency(
+    return ActiveDispatch.doPostWithContingency(
       this.sel,
       path,
       Converter.castToRefreshResult
@@ -942,7 +743,7 @@ class ElasticSearchOps implements IElasticSearchOps {
 
   insertRaw(index: string, payload: string | Buffer): Promise<Result> {
     let path = concat2(index, DEFAULT_DOC_TYPE);
-    return doPostWithContingency(
+    return ActiveDispatch.doPostWithContingency(
       this.sel,
       path,
       Converter.castToResult,
@@ -956,7 +757,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   ): Promise<Result> {
     let path = `${index}/${DEFAULT_DOC_TYPE}/${id}/_update`;
 
-    return doPostWithContingency(
+    return ActiveDispatch.doPostWithContingency(
       this.sel,
       path,
       Converter.castToResult,
@@ -981,7 +782,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   ): Promise<Result> {
     let path = concat3(index, DEFAULT_DOC_TYPE, id);
 
-    return doPutWithContingency(
+    return ActiveDispatch.doPutWithContingency(
       this.sel,
       path,
       Converter.castToResult,
@@ -991,22 +792,24 @@ class ElasticSearchOps implements IElasticSearchOps {
   settings(index: string): Promise<Settings> {
     let path = concat2(index, "_settings");
 
-    return doGetWithContingency(this.sel, path, o => {
+    return ActiveDispatch.doGetWithContingency(this.sel, path, o => {
       (o = o[index]) && (o = o["settings"]) && (o = o["index"]);
       return Converter.castToSettings(o);
     });
   }
 
-  info(host?: string | undefined): Promise<NodeInfo> {
-    let h = host || this.sel.available().next().value.url();
-
-    return doGet(h, Converter.castToNodeInfo);
+  info(): Promise<NodeInfo> {
+    return ActiveDispatch.doGetWithContingency(
+      this.sel,
+      null,
+      Converter.castToNodeInfo
+    );
   }
 
   mappings(index: string): Promise<Mappings> {
     let path = concat2(index, "_mappings");
 
-    return doGetWithContingency(this.sel, path, (o: any) =>
+    return ActiveDispatch.doGetWithContingency(this.sel, path, (o: any) =>
       Converter.castToMapping(o[index])
     );
   }

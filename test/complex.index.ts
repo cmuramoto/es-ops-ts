@@ -9,7 +9,7 @@ import {
   IndexedType
 } from "../config/exports";
 
-const ops = OpsFactory("http://localhost:9300", "http://localhost:9200");
+const ops = OpsFactory("http://localhost:9400", "http://localhost:9200");
 
 const DATE_PATTERNS = ["yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS"];
 
@@ -85,14 +85,14 @@ const initializeIndex = async (
   return rv;
 };
 
-const infos = () => {
-  ops.info().then(info => {
+const infos = async () => {
+   ops.info().then(info => {
     console.log(info.json());
   });
 };
 
-const mappings = () => {
-  ops.mappings(IX_NAME).then(v => {
+const mappings = async () => {
+   ops.mappings(IX_NAME).then(v => {
     console.log(v.json());
     let doc = v.type("doc");
     if (doc) {
@@ -101,8 +101,8 @@ const mappings = () => {
   });
 };
 
-const settings = () => {
-  ops.settings(IX_NAME).then(v => {
+const settings = async () => {
+   ops.settings(IX_NAME).then(v => {
     console.log(v);
   });
 };
@@ -116,9 +116,9 @@ const run = async () => {
 
   console.log(state.json());
 
-  infos();
-  mappings();
-  settings();
+  await infos();
+  await mappings();
+  await settings();
 };
 
 run().finally(() => ops.close());
