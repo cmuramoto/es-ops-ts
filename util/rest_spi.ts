@@ -1,15 +1,13 @@
 import { IEndpointSelector, HttpHost } from "./ha_client";
 
+import {concatPaths} from './strings';
+
 const tryLoad = (name: string, skip: boolean = false) => {
   try {
     return skip ? null : require(name);
   } catch (e) {
     return null;
   }
-};
-
-const concat2 = (l: string, r: string) => {
-  return l.endsWith("/") ? l + r : `${l}/${r}`;
 };
 
 const axios = tryLoad("axios");
@@ -254,7 +252,7 @@ class UnirestImpl extends BaseImpl {
       rv = Promise.reject("Exausted Hosts") as Promise<T>;
     } else {
       rv = new Promise<T>((resolve, reject) => {
-        let path = concat2(curr.url(), ctx);
+        let path = concatPaths(curr.url(), ctx);
         this.prepareCall(method, path, buffer).end((res: HttpResponse) => {
           //TODO better status handling
           if (res.error || res.status >= 400) {
@@ -324,7 +322,7 @@ class AxiosImpl extends BaseImpl {
       let path = ctx
         ? ctx.startsWith("http")
           ? ctx
-          : concat2(curr.url(), ctx)
+          : concatPaths(curr.url(), ctx)
         : curr.url();
       rv = this.prepareCall(method, path, buffer)
         .then((res: HttpResponse) => {

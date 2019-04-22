@@ -2,23 +2,23 @@ import { Sort } from "./sort";
 import { UpdateStatement } from "../ops/exports";
 
 export class RootQuery {
-  from?: number;
-  size?: number;
+  from!: number;
+  size!: number;
   //@JsonIgnore
-  scrollTTL?: number;
-  _source?: boolean;
+  scrollTTL!: number;
+  _source!: boolean;
 
   //UpdateStatement.Script script;
 
-  query?: any;
+  query!: any;
 
-  sort?: Array<Record<string, Sort>>;
+  sort!: Array<Record<string, Sort>>;
 
-  search_after?: Array<any>;
+  search_after!: Array<any>;
 
-  script: UpdateStatement;
+  script!: UpdateStatement;
 
-  aggs?: any;
+  aggs!: any;
 
   static matchAll(): RootQuery {
     let rv = new RootQuery();
@@ -75,6 +75,18 @@ export class RootQuery {
   ): RootQuery {
     this.script = UpdateStatement.script(source, lang, params);
 
+    return this;
+  }
+
+  after(o: any, tiebreak?: any): RootQuery {
+    let list = this.search_after;
+    if (!list) {
+      list = this.search_after = [];
+    }
+    list.push(o);
+    if (tiebreak) {
+      list.push(tiebreak);
+    }
     return this;
   }
 }

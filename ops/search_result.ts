@@ -99,7 +99,7 @@ export class MappedSearchResult<T> implements ISearchResult<T> {
 
     return v ? v._source : null;
   }
-  
+
   idList(): string[] {
     return this.getHits().map(h => h._id);
   }
@@ -112,26 +112,25 @@ export class MappedSearchResult<T> implements ISearchResult<T> {
     let h = this.hits;
     return h ? h.hits || [] : [];
   }
+}
+export const SearchResultFactory = <T>(r: any, mapper: (o: any) => T): ISearchResult<T> =>{
+  let rv = new MappedSearchResult<T>();
+  Object.assign(rv, r);
+  let hits = rv.hits;
 
-  static create<T>(r: any, mapper: (o: any) => T): MappedSearchResult<T> {
-    let rv = new MappedSearchResult<T>();
-    Object.assign(rv, r);
-    let hits = rv.hits;
+  if (hits) {
+    protoAssign(hits, __Hits);
+    let hhits = hits.hits;
+    if (hhits) {
+      hits.hits = hhits.map(h => {
+        let o: any = h._source;
+        let ht = protoAssign(h, __Hit) as Hit<T>;
+        ht._source = mapper(o);
 
-    if (hits) {
-      protoAssign(hits, __Hits);
-      let hhits = hits.hits;
-      if (hhits) {
-        hits.hits = hhits.map(h => {
-          let o: any = h._source;
-          let ht = protoAssign(h, __Hit) as Hit<T>;
-          ht._source = mapper(o);
-
-          return ht;
-        });
-      }
+        return ht;
+      });
     }
-
-    return rv;
   }
+
+  return rv;
 }

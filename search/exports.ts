@@ -17,6 +17,8 @@ import {
 
 import { ICompoundQuery, Bool } from "./compound_query";
 
+import {Scroll} from './scroll';
+
 export {
   IQuery,
   //Kind, //
@@ -34,5 +36,6 @@ export {
   Order, //
   ICompoundQuery,
   Bool, //
-  RootQuery
+  RootQuery,
+  Scroll
 };

@@ -7,28 +7,28 @@ import {
 
 import {
   Result,
-  MappedSearchResult,
+  SearchResultFactory,
   RefreshResult,
   ISearchResult,
   IBulkOpResult,
-  UpdateStatement
-} from "../ops/exports";
-
-import { Converter } from "./bind";
-import { RootQuery } from "../search/exports";
-import { Scroll } from "../search/scroll";
-import {
+  UpdateStatement,
   BulkOpResultFactory,
   BulkDeleteResult,
   UpdateByQueryOptions,
-  UpdateByQueryResult
-} from "../ops/bulk_ops";
+  UpdateByQueryResult,
+  IGrowableBuffer,
+  GrowableBuffer
+} from "../ops/exports";
 
-import { IGrowableBuffer, GrowableBuffer } from "../ops/buffer_sink";
+import { Converter } from "./bind";
+import { RootQuery, Scroll } from "../search/exports";
 
-import { IEndpointSelector, EndpointSelectorFactory } from "../util/ha_client";
-
-import { ActiveDispatch } from "../util/rest_spi";
+import {
+  IEndpointSelector,
+  EndpointSelectorFactory,
+  ActiveDispatch,
+  concatPaths
+} from "../util/exports";
 
 //TODO
 const DEFAULT_DOC_TYPE = "doc";
@@ -43,20 +43,6 @@ const SCROLL_SEARCH_PARAMS =
   "_search?filter_path=took,_shards,timed_out,hits.hits._source,hits.hits._id,hits.total,_scroll_id&scroll=";
 
 const SCROLL_PATH = "_search/scroll";
-
-const concat2 = (l: string, r: string) => {
-  return l.endsWith("/") ? l + r : `${l}/${r}`;
-};
-
-const concat3 = (l: string, r: string, s: string) => {
-  return l.endsWith("/")
-    ? r.endsWith("/")
-      ? l + r + s
-      : `${l}${r}/${s}`
-    : r.endsWith("/")
-    ? `${l}/${r}${s}`
-    : `${l}/${r}/${s}`;
-};
 
 const projectionPath = (
   endpoint: string,
@@ -489,7 +475,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     let path = op
       ? `_update_by_query?${op}`
       : "_update_by_query?conflicts=proceed";
-    path = concat2(index, path);
+    path = concatPaths(index, path);
 
     return ActiveDispatch.doPostWithContingency(
       this.sel,
@@ -521,7 +507,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     outputItems?: boolean,
     batch?: number
   ): IterableIterator<Promise<IBulkOpResult>> {
-    let ctx = concat3(index, DEFAULT_DOC_TYPE, "_bulk");
+    let ctx = concatPaths(index, DEFAULT_DOC_TYPE, "_bulk");
     let fac = factory ? factory : UpdateStatement.doc;
 
     let batcher = OpSupport.bulkUpdate(
@@ -536,7 +522,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   }
 
   deleteMatching(index: string, q: RootQuery): Promise<BulkDeleteResult> {
-    let path = concat2(index, "_delete_by_query?conflicts=proceed");
+    let path = concatPaths(index, "_delete_by_query?conflicts=proceed");
 
     return ActiveDispatch.doPostWithContingency(
       this.sel,
@@ -554,7 +540,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     idFactory?: (o: T) => string,
     sink?: (src: T, dst: IGrowableBuffer) => void
   ): IterableIterator<Promise<IBulkOpResult>> {
-    let ctx = concat3(index, DEFAULT_DOC_TYPE, "_bulk");
+    let ctx = concatPaths(index, DEFAULT_DOC_TYPE, "_bulk");
 
     let batcher = OpSupport.bulkInsert(
       this.sel,
@@ -579,7 +565,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   }
 
   count(index: string, q: RootQuery): Promise<number> {
-    let path = concat2(index, "_count?filter_path=count");
+    let path = concatPaths(index, "_count?filter_path=count");
 
     return ActiveDispatch.doPostWithContingency(
       this.sel,
@@ -608,12 +594,12 @@ class ElasticSearchOps implements IElasticSearchOps {
     let ttl = q.scrollTtlOrDefault();
 
     if (!fields || !fields.length) {
-      path = concat2(index, `${SCROLL_SEARCH_PARAMS}${ttl}s`);
+      path = concatPaths(index, `${SCROLL_SEARCH_PARAMS}${ttl}s`);
     } else {
       path = projectionPath(index, ttl, ...fields);
     }
 
-    let rmapper = (r: any) => MappedSearchResult.create(r, mapper);
+    let rmapper = (r: any) => SearchResultFactory(r, mapper);
 
     let head = ActiveDispatch.doPostWithContingency(
       this.sel,
@@ -651,7 +637,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   ): Promise<ISearchResult<T>> {
     let path;
     if (!fields || !fields.length) {
-      path = concat2(index, BASE_SEARCH_PARAMS);
+      path = concatPaths(index, BASE_SEARCH_PARAMS);
     } else {
       path = projectionPath(index, 0, ...fields);
     }
@@ -659,7 +645,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     return ActiveDispatch.doPostWithContingency(
       this.sel,
       path,
-      r => MappedSearchResult.create(r, mapper),
+      r => SearchResultFactory(r, mapper),
       q.json()
     );
   }
@@ -672,7 +658,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     return this.query<any>(
       index,
       q,
-      r => MappedSearchResult.create(r, o => o),
+      r => SearchResultFactory(r, o => o),
       ...fields
     );
   }
@@ -720,7 +706,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     mapper: (o: any) => T,
     ...fields: string[]
   ): Promise<T> {
-    let path = concat3(
+    let path = concatPaths(
       index,
       DEFAULT_DOC_TYPE,
       singleProjection(id, ...fields)
@@ -732,7 +718,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     });
   }
   refresh(index: string): Promise<RefreshResult> {
-    let path = concat2(index, "_refresh");
+    let path = concatPaths(index, "_refresh");
 
     return ActiveDispatch.doPostWithContingency(
       this.sel,
@@ -742,7 +728,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   }
 
   insertRaw(index: string, payload: string | Buffer): Promise<Result> {
-    let path = concat2(index, DEFAULT_DOC_TYPE);
+    let path = concatPaths(index, DEFAULT_DOC_TYPE);
     return ActiveDispatch.doPostWithContingency(
       this.sel,
       path,
@@ -780,7 +766,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     id: string,
     payload: string | Buffer
   ): Promise<Result> {
-    let path = concat3(index, DEFAULT_DOC_TYPE, id);
+    let path = concatPaths(index, DEFAULT_DOC_TYPE, id);
 
     return ActiveDispatch.doPutWithContingency(
       this.sel,
@@ -790,7 +776,7 @@ class ElasticSearchOps implements IElasticSearchOps {
     );
   }
   settings(index: string): Promise<Settings> {
-    let path = concat2(index, "_settings");
+    let path = concatPaths(index, "_settings");
 
     return ActiveDispatch.doGetWithContingency(this.sel, path, o => {
       (o = o[index]) && (o = o["settings"]) && (o = o["index"]);
@@ -807,7 +793,7 @@ class ElasticSearchOps implements IElasticSearchOps {
   }
 
   mappings(index: string): Promise<Mappings> {
-    let path = concat2(index, "_mappings");
+    let path = concatPaths(index, "_mappings");
 
     return ActiveDispatch.doGetWithContingency(this.sel, path, (o: any) =>
       Converter.castToMapping(o[index])
