@@ -808,3 +808,56 @@ ops.deleteFields(index,query,'not_useful_anymore');
 
 ### Paging and Search After
 
+In ElasticSearch paging is achieved through **search_after** feature, which is more closely related to 'stateless paging' than deep scrolling.
+
+In order to page results using search_after one must first issue a **RootQuery** configured with an order by (and optionally) a page size. The next pages are retrieved by piggybacking on the *last doc* of a **SearchResult**, by picking the corresponding field value and passing it to the after method. 
+
+Usually one should use **search_after** to fetch results of a single query, but it can also be easily converted to stream data in the same fashion of statefull scrolls:
+
+```typescript
+const TAG = "superUniqueTagNameOfCustomDoc";
+const ORDER_FIELD = "sequence";
+
+class SearchAfterStream {
+
+  static async *stream(): AsyncIterableIterator<CustomDoc[]> {
+    let ps = 100;
+
+    let query = Exists.exists(TAG)
+      .asRoot()
+      .orderBy(ORDER_FIELD, Sort.asc())
+      .limit(ps);
+
+    let head = await ops.query(index, query, ObjToCustomDoc);
+
+    if (head && !head.isEmptyOrComplete()) {
+      do {
+        yield head.values();
+
+        query = Exists.exists(TAG)
+          .asRoot()
+          .orderBy(ORDER_FIELD, Sort.asc())
+          .limit(ps)
+          .after(head.last().sequence);
+
+        head = await ops.query(index, query, ObjToCustomDoc);
+      } while (head && !head.isEmptyOrComplete());
+    }
+  }
+}
+
+const do_search_after = async () => {
+  let count = await ops.count(index, Exists.exists(TAG).asRoot());
+
+  let sequences = new Set<Number>();
+
+  for await (const docs of SearchAfterStream.stream()) {
+    docs.forEach(doc => {
+      sequences.add(doc.sequence);
+    });
+  }
+
+  console.log(`Distinct sequences => Expected: ${count}/Queried: ${sequences.size}`);
+};
+
+```
