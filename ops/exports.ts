@@ -1,6 +1,6 @@
-import { Result, RefreshResult, Status, ShardStats } from "./result";
-import { Hits, Hit } from "./hits";
-import { ISearchResult,SearchResultFactory } from "./search_result";
+import { Result, RefreshResult, Status, ShardStats } from "./result"
+import { Hits, Hit } from "./hits"
+import { ISearchResult, SearchResultFactory } from "./search_result"
 import {
   Retries,
   IBulkOpResult,
@@ -10,9 +10,9 @@ import {
   UpdateStatement,
   UpdateByQueryOptions,
   UpdateByQueryResult
-} from "./bulk_ops";
+} from "./bulk_ops"
 
-import {IGrowableBuffer, GrowableBuffer} from './buffer_sink';
+import { IGrowableBuffer, GrowableBuffer } from "./buffer_sink"
 
 export {
   Result,
@@ -30,6 +30,7 @@ export {
   BulkOpResultFactory,
   UpdateStatement,
   UpdateByQueryOptions,
-  UpdateByQueryResult,//
-  IGrowableBuffer, GrowableBuffer
-};
+  UpdateByQueryResult, //
+  IGrowableBuffer,
+  GrowableBuffer
+}

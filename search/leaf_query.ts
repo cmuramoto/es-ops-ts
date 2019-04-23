@@ -1,358 +1,358 @@
-import { IQuery, Kind } from "./query";
+import { IQuery, Kind } from "./query"
 
 export abstract class ILeafQuery extends IQuery {}
 
 export class Exists extends ILeafQuery {
-  readonly field: string;
+  readonly field: string
 
   constructor(field: string) {
-    super();
-    this.field = field;
+    super()
+    this.field = field
   }
 
   static exists(field: string): Exists {
-    return new Exists(field);
+    return new Exists(field)
   }
   kind(): Kind {
-    return Kind.exists;
+    return Kind.exists
   }
 }
 
 export class Ids extends ILeafQuery {
-  type: string;
-  values?: Array<string>;
+  type: string
+  values?: Array<string>
 
   constructor(type: string) {
-    super();
-    this.type = type;
+    super()
+    this.type = type
   }
 
   static ids(...ids: string[]): Ids {
-    return this.of("doc").appendOrSet(...ids);
+    return this.of("doc").appendOrSet(...ids)
   }
 
   static of(type: string): Ids {
-    let ids = new Ids(type);
-    ids.type = type;
+    let ids = new Ids(type)
+    ids.type = type
 
-    return ids;
+    return ids
   }
 
   append(...ids: Array<string>): Ids {
-    let vals = this.values;
+    let vals = this.values
     if (!vals) {
-      vals = this.values = [];
+      vals = this.values = []
     }
 
-    vals = vals.concat(ids);
-    return this;
+    vals = vals.concat(ids)
+    return this
   }
 
   appendOrSet(...ids: Array<string>): Ids {
     if (!this.values) {
-      this.values = ids;
+      this.values = ids
     } else {
-      this.append(...ids);
+      this.append(...ids)
     }
-    return this;
+    return this
   }
 
   kind(): Kind {
-    return Kind.ids;
+    return Kind.ids
   }
 }
 
 export class Match extends ILeafQuery {
-  m: Record<string, any> = {};
+  m: Record<string, any> = {}
 
   static query(field: string, text: string): Match {
-    let rv = new Match();
-    let m: Record<string, any> = {};
-    m.put("query", text);
-    rv.m[field] = m;
+    let rv = new Match()
+    let m: Record<string, any> = {}
+    m.put("query", text)
+    rv.m[field] = m
 
-    return rv;
+    return rv
   }
 
   static simple(field: string, text: string): Match {
-    let rv = new Match();
-    rv.m[field] = text;
-    return rv;
+    let rv = new Match()
+    rv.m[field] = text
+    return rv
   }
 
   analyzer(which: string): Match {
-    this.map().put("analyzer", which);
+    this.map().put("analyzer", which)
 
-    return this;
+    return this
   }
 
   private map(): Record<string, any> {
-    let m = this.m["_"];
+    let m = this.m["_"]
     if (!m) {
-      this.m["_"] = m = {};
+      this.m["_"] = m = {}
     }
 
-    return m;
+    return m
   }
 
   rewrite(): any {
-    return this.m;
+    return this.m
   }
 
   useAnd(): Match {
-    this.map().put("operator", "and");
-    return this;
+    this.map().put("operator", "and")
+    return this
   }
 
   useOr(): Match {
-    this.map().put("operator", "or");
-    return this;
+    this.map().put("operator", "or")
+    return this
   }
 
   kind(): Kind {
-    return Kind.match;
+    return Kind.match
   }
 }
 
 export class Range extends ILeafQuery {
   constructor(field: string) {
-    super();
-    this.field = field;
+    super()
+    this.field = field
   }
 
   static range(term: string): Range {
-    let r = new Range(term);
-    return r;
+    let r = new Range(term)
+    return r
   }
 
-  field: string;
-  _lt: any;
-  _lte: any;
-  _gt: any;
-  _gte: any;
-  boost?: number;
-  format?: string;
-  time_zone?: string;
-  fmt?(d: string | Date): string;
+  field: string
+  _lt: any
+  _lte: any
+  _gt: any
+  _gte: any
+  boost?: number
+  format?: string
+  time_zone?: string
+  fmt?(d: string | Date): string
 
   exact(val: any): Range {
-    return this.lte(val).gte(val);
+    return this.lte(val).gte(val)
   }
 
   doFmt(val?: Date | string): string {
-    let fmt = this.fmt;
+    let fmt = this.fmt
     return val == null
       ? "now"
       : fmt == null
       ? typeof val == "string"
         ? val
         : val.toJSON()
-      : fmt(val);
+      : fmt(val)
   }
 
   use(fmt: (d: any) => string): Range {
-    this.fmt = fmt;
+    this.fmt = fmt
 
-    return this;
+    return this
   }
 
   gt(val?: Date | string | number): Range {
     if (typeof val == "number") {
-      this._gt = val;
+      this._gt = val
     } else {
-      this._gt = this.doFmt(val);
+      this._gt = this.doFmt(val)
     }
 
-    this._gte = null;
+    this._gte = null
 
-    return this;
+    return this
   }
 
   gte(val?: Date | string | number): Range {
     if (typeof val == "number") {
-      this._gte = val;
+      this._gte = val
     } else {
-      this._gte = this.doFmt(val);
+      this._gte = this.doFmt(val)
     }
-    this._gt = null;
-    return this;
+    this._gt = null
+    return this
   }
 
   lt(val?: Date | string | number): Range {
     if (typeof val == "number") {
-      this._lt = val;
+      this._lt = val
     } else {
-      this._lt = this.doFmt(val);
+      this._lt = this.doFmt(val)
     }
-    this._lte = null;
-    return this;
+    this._lte = null
+    return this
   }
 
   lte(val?: Date | string | number): Range {
     if (typeof val == "number") {
-      this._lte = val;
+      this._lte = val
     } else {
-      this._lte = this.doFmt(val);
+      this._lte = this.doFmt(val)
     }
-    this._lt = null;
-    return this;
+    this._lt = null
+    return this
   }
 
   isoDate(): Range {
-    this.format = "yyyy-MM-dd";
+    this.format = "yyyy-MM-dd"
     return this.use(dt => {
-      let rv: string;
+      let rv: string
       if (typeof dt == "string") {
-        rv = dt;
+        rv = dt
       } else {
         rv = dt
           .toLocaleDateString()
           .split("/")
           .reverse()
-          .join("-");
+          .join("-")
       }
 
-      return rv;
-    });
+      return rv
+    })
   }
 
   isoDateTime(): Range {
-    this.format = "yyyy-MM-dd'T'HH:mm:ss.SSS";
+    this.format = "yyyy-MM-dd'T'HH:mm:ss.SSS"
     return this.use(dt => {
-      let rv: string;
+      let rv: string
       if (typeof dt == "string") {
-        rv = dt;
+        rv = dt
       } else {
-        rv = dt.toJSON().replace("Z", "");
+        rv = dt.toJSON().replace("Z", "")
       }
 
-      return rv;
-    });
+      return rv
+    })
   }
 
   isoTime(): Range {
-    this.format = "HH:mm:ss.SSS";
+    this.format = "HH:mm:ss.SSS"
     return this.use(dt => {
-      let rv: string;
+      let rv: string
       if (typeof dt == "string") {
-        rv = dt;
+        rv = dt
       } else {
-        rv = dt.toJSON();
-        rv = rv.substring(rv.indexOf("T") + 1, rv.indexOf("Z"));
+        rv = dt.toJSON()
+        rv = rv.substring(rv.indexOf("T") + 1, rv.indexOf("Z"))
       }
 
-      return rv;
-    });
+      return rv
+    })
   }
 
   rewrite(): any {
-    let o: any = {};
-    let t: any = {};
-    Object.assign(t, this);
-    o[t.field] = t;
-    let v;
+    let o: any = {}
+    let t: any = {}
+    Object.assign(t, this)
+    o[t.field] = t
+    let v
 
     if ((v = t._gt)) {
-      t.gt = v;
+      t.gt = v
     }
 
     if ((v = t._gte)) {
-      t.gte = v;
+      t.gte = v
     }
 
     if ((v = t._lt)) {
-      t.lt = v;
+      t.lt = v
     }
 
     if ((v = t._lte)) {
-      t.lte = v;
+      t.lte = v
     }
-    
-    delete t.field;
-    delete t.fmt;
-    delete t._gt;
-    delete t._lt;
-    delete t._gte;
-    delete t._lte;
 
-    return o;
+    delete t.field
+    delete t.fmt
+    delete t._gt
+    delete t._lt
+    delete t._gte
+    delete t._lte
+
+    return o
   }
 
   kind(): Kind {
-    return Kind.range;
+    return Kind.range
   }
 }
 
 export class Term extends ILeafQuery {
   static of(field: string, value: string): Term {
-    let rv = new Term();
-    let o: Record<string, string> = {};
-    o.field = value;
-    rv.term = o;
-    return rv;
+    let rv = new Term()
+    let o: Record<string, string> = {}
+    o.field = value
+    rv.term = o
+    return rv
   }
 
-  term?: Record<string, string>;
+  term?: Record<string, string>
 
-  boost?: number;
+  boost?: number
 
   rewrite(): any {
-    let o: any = { ...this.term };
+    let o: any = { ...this.term }
 
     if (this.boost) {
-      o.boost = this.boost;
+      o.boost = this.boost
     }
 
-    return o;
+    return o
   }
 
   kind(): Kind {
-    return Kind.term;
+    return Kind.term
   }
 }
 
 export class Terms<T> extends ILeafQuery {
   static terms<T>(term: string, values: Array<T>): Terms<T> {
-    let rv = new Terms<T>();
-    let o: Record<string, Array<T>> = {};
-    o[term] = values;
-    rv.terms = o;
+    let rv = new Terms<T>()
+    let o: Record<string, Array<T>> = {}
+    o[term] = values
+    rv.terms = o
 
-    return rv;
+    return rv
   }
 
-  terms?: Record<string, Array<T>>;
+  terms?: Record<string, Array<T>>
 
   rewrite(): any {
-    return this.terms;
+    return this.terms
   }
 
   kind(): Kind {
-    return Kind.terms;
+    return Kind.terms
   }
 }
 
 export class WildCard extends ILeafQuery {
-  term: string;
-  value: string;
+  term: string
+  value: string
 
   constructor(term: string, value: string) {
-    super();
-    this.term = term;
-    this.value = value;
+    super()
+    this.term = term
+    this.value = value
   }
 
   static wildcard(term: string, value: string): WildCard {
-    return new WildCard(term, value);
+    return new WildCard(term, value)
   }
 
   rewrite(): any {
-    let o: any = {};
-    o[this.term] = this.value;
-    return o;
+    let o: any = {}
+    o[this.term] = this.value
+    return o
   }
 
   kind(): Kind {
-    return Kind.wildcard;
+    return Kind.wildcard
   }
 }

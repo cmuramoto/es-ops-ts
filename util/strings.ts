@@ -9,5 +9,5 @@ export const concatPaths = (l: string, r: string, s?: string) => {
       : `${l}/${r}/${s}`
     : l.endsWith("/")
     ? l + r
-    : `${l}/${r}`;
-};
+    : `${l}/${r}`
+}

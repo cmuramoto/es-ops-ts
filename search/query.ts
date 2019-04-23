@@ -1,4 +1,4 @@
-import { RootQuery } from "./root_query";
+import { RootQuery } from "./root_query"
 
 export enum Kind {
   bool = "bool",
@@ -35,27 +35,27 @@ export enum Kind {
 }
 
 export /*interface*/ abstract class IQuery {
-  abstract kind(): Kind;
+  abstract kind(): Kind
 
   kindName(): string {
-    return this.kind();
+    return this.kind()
   }
 
   rewrite(): any {
-    return this;
+    return this
   }
 
   toRecord(): Record<Kind, any> {
-    let o = {} as Record<Kind, any>;
-    o[this.kind()] = this.rewrite();
-    return o;
+    let o = {} as Record<Kind, any>
+    o[this.kind()] = this.rewrite()
+    return o
   }
 
   asRoot(): RootQuery {
-    let q = new RootQuery();
-    let o: any = {};
-    o[this.kind()] = this.rewrite();
-    q.query = o;
-    return q;
+    let q = new RootQuery()
+    let o: any = {}
+    o[this.kind()] = this.rewrite()
+    q.query = o
+    return q
   }
 }

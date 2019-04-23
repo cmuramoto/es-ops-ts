@@ -1,13 +1,13 @@
-import { DateFormat, GeneralType, Type, IndexOptions, StoreType } from "./base";
-import { DynamicTemplate } from "./dynamic_template";
-import { Property } from "./property";
-import { IndexedType } from "./indexed_type";
-import { Source } from "./source";
-import { Mappings } from "./mappings";
-import { Settings } from "./settings";
-import { IndexDefinition } from "./index_definition";
+import { DateFormat, GeneralType, Type, IndexOptions, StoreType } from "./base"
+import { DynamicTemplate } from "./dynamic_template"
+import { Property } from "./property"
+import { IndexedType } from "./indexed_type"
+import { Source } from "./source"
+import { Mappings } from "./mappings"
+import { Settings } from "./settings"
+import { IndexDefinition } from "./index_definition"
 
-import {NodeInfo,VersionInfo} from './node_info';
+import { NodeInfo, VersionInfo } from "./node_info"
 
 export {
   DateFormat,
@@ -24,4 +24,4 @@ export {
   IndexDefinition,
   NodeInfo,
   VersionInfo
-};
+}

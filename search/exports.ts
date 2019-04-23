@@ -1,8 +1,8 @@
-import { IQuery, Kind } from "./query";
+import { IQuery, Kind } from "./query"
 
-import { RootQuery } from "./root_query";
+import { RootQuery } from "./root_query"
 
-import { Sort, Mode, Order } from "./sort";
+import { Sort, Mode, Order } from "./sort"
 
 import {
   ILeafQuery,
@@ -13,11 +13,11 @@ import {
   Term,
   Terms,
   WildCard
-} from "./leaf_query";
+} from "./leaf_query"
 
-import { ICompoundQuery, Bool } from "./compound_query";
+import { ICompoundQuery, Bool } from "./compound_query"
 
-import {Scroll} from './scroll';
+import { Scroll } from "./scroll"
 
 export {
   IQuery,
@@ -38,4 +38,4 @@ export {
   Bool, //
   RootQuery,
   Scroll
-};
+}
